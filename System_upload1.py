@@ -10,7 +10,7 @@ import sys
 # ---------------- BASE PATH ----------------
 BASE_PATH = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(BASE_PATH, "db", "new_db.db")
-AWS_PATH = os.path.join(BASE_PATH, "aws_iot")
+AWS_PATH = os.path.join(BASE_PATH, "certs")
 
 CA_PATH   = os.path.join(AWS_PATH, "AmazonRootCA1.pem")
 CERT_PATH = os.path.join(AWS_PATH, "certificate.pem.crt")
