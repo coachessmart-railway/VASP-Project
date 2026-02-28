@@ -7,43 +7,41 @@ import os
 sys.stdout.reconfigure(encoding='utf-8')
 
 # ---------------- CONFIG ----------------
-RAW_THRESHOLD = 2049        # ~0.5 bar equivalent
-READ_INTERVAL = 0.5         # seconds
+RAW_THRESHOLD = 1638  # ~0.5 bar equivalent
+READ_INTERVAL = 1      # seconds
 
 # ---------------- DATABASE PATH ----------------
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(BASE_DIR, "db", "new_db.db")
 
-# ---------------- DATABASE CONNECTION ----------------
+# ---------------- DATABASE ----------------
 conn = sqlite3.connect(DB_PATH, check_same_thread=False)
 cursor = conn.cursor()
 
-# ---------------- TABLE SETUP ----------------
+# Create table if not exists
 cursor.execute("""
 CREATE TABLE IF NOT EXISTS brake_pressure_log (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    device_id TEXT,
+    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
     BP_raw INTEGER,
     FP_raw INTEGER,
     CR_raw INTEGER,
     BC_raw INTEGER,
-    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
     uploaded INTEGER DEFAULT 0
 )
 """)
 conn.commit()
 
-# ---------------- GET DEVICE ID ----------------
-cursor.execute("SELECT device_id FROM device_config LIMIT 1")
-result = cursor.fetchone()
-if result:
-    DEVICE_ID = result[0]
-    print(f" Device ID found: {DEVICE_ID}", flush=True)
-else:
-    DEVICE_ID = "MISSING"
-    print(" Device ID missing or not found!", flush=True)
+# ---------------- DEVICE CONFIG ----------------
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS device_config (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    device_id TEXT UNIQUE
+)
+""")
+conn.commit()
 
-# ---------------- ADS1115 SENSOR SETUP ----------------
+# ---------------- ADS1115 SENSOR ----------------
 ADS_AVAILABLE = True
 try:
     import board
@@ -60,11 +58,10 @@ try:
     cr_channel = AnalogIn(ads, 2)
     bc_channel = AnalogIn(ads, 3)
 
-except Exception as e:
+except Exception:
     ADS_AVAILABLE = False
-    print(f"ADS1115 not available: {e}", flush=True)
 
-# ---------------- SENSOR READ FUNCTION ----------------
+# ---------------- READ SENSOR FUNCTION ----------------
 def read_raw_values():
     if ADS_AVAILABLE:
         return (
@@ -76,20 +73,19 @@ def read_raw_values():
     return (0, 0, 0, 0)
 
 # ---------------- MAIN LOOP ----------------
-print("\n Capture system started...\n", flush=True)
-print("Device_id, BP_raw, FP_raw, CR_raw, BC_raw, timestamp", flush=True)
-
+print("🚀 Capture system started...\n", flush=True)
 last_raw = None
+
+# Fetch device_id
+cursor.execute("SELECT device_id FROM device_config LIMIT 1")
+DEVICE_ID_ROW = cursor.fetchone()
+DEVICE_ID = DEVICE_ID_ROW["device_id"] if DEVICE_ID_ROW else "UNKNOWN"
 
 while True:
     current_raw = read_raw_values()
     timestamp = time.strftime('%Y-%m-%d %H:%M:%S')
 
-    # Print CSV-style output
-    print(
-        f"{DEVICE_ID}, {current_raw[0]}, {current_raw[1]}, {current_raw[2]}, {current_raw[3]}, {timestamp}",
-        flush=True
-    )
+    print(f"Device_id = {DEVICE_ID}, BP_raw={current_raw[0]}, FP_raw={current_raw[1]}, CR_raw={current_raw[2]}, BC_raw={current_raw[3]}, timestamp={timestamp}", flush=True)
 
     upload = False
     if last_raw is None:
@@ -101,15 +97,13 @@ while True:
 
     if upload:
         cursor.execute("""
-            INSERT INTO brake_pressure_log
-            (device_id, BP_raw, FP_raw, CR_raw, BC_raw, timestamp)
-            VALUES (?, ?, ?, ?, ?, ?)
-        """, (DEVICE_ID, *current_raw, timestamp))
+            INSERT INTO brake_pressure_log (BP_raw, FP_raw, CR_raw, BC_raw)
+            VALUES (?, ?, ?, ?)
+        """, (*current_raw,))
         conn.commit()
         last_raw = current_raw
-        print(f" Data inserted into DB at {timestamp}", flush=True)
+        print("✅ Data inserted into DB", flush=True)
     else:
-        print(" No significant change → Skipped insert", flush=True)
+        print("⏭ No significant change → Skipped insert", flush=True)
 
-    print("---------------------------------------------\n", flush=True)
     time.sleep(READ_INTERVAL)
