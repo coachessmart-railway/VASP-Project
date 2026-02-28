@@ -9,7 +9,7 @@ import sys
 
 # ---------------- BASE PATH ----------------
 BASE_PATH = os.path.dirname(os.path.abspath(__file__))
-DB_PATH = os.path.join(BASE_PATH, "db", "new_db.db")
+DB_PATH = os.path.join(BASE_PATH, "db", "new_db.db")   # Correct DB
 AWS_PATH = os.path.join(BASE_PATH, "certs")
 
 CA_PATH   = os.path.join(AWS_PATH, "AmazonRootCA1.pem")
@@ -19,11 +19,14 @@ KEY_PATH  = os.path.join(AWS_PATH, "private.pem.key")
 # ---------------- MQTT CONFIG ----------------
 ENDPOINT  = "a1vddjuckiz90j-ats.iot.ap-south-1.amazonaws.com"
 PORT      = 8883
-CLIENT_ID = "Raspberrypi_4A"  # unique client ID
+CLIENT_ID = "Raspberrypi_4A"  # MQTT client ID, separate from device_id
 TOPIC     = "brake/pressure"
 
 # ---------------- DATABASE ----------------
-os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
+if not os.path.exists(DB_PATH):
+    print(f"❌ Database not found: {DB_PATH}", flush=True)
+    sys.exit(1)
+
 conn = sqlite3.connect(DB_PATH)
 conn.row_factory = sqlite3.Row
 cursor = conn.cursor()
@@ -31,7 +34,7 @@ cursor = conn.cursor()
 # ---------------- FETCH DEVICE ID ----------------
 cursor.execute("SELECT device_id FROM device_config LIMIT 1")
 row = cursor.fetchone()
-DEVICE_ID = row["device_id"] if row else None
+DEVICE_ID = row[0] if row else None
 
 if DEVICE_ID is None:
     print("⚠️ Device ID missing in device_config table. Exiting...", flush=True)
