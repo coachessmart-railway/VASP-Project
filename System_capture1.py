@@ -8,7 +8,7 @@ sys.stdout.reconfigure(encoding='utf-8')
 
 # ---------------- CONFIG ----------------
 RAW_THRESHOLD = 1638  # ~0.5 bar equivalent
-READ_INTERVAL = 1      # seconds
+READ_INTERVAL = 0.5  # seconds
 
 # ---------------- DATABASE PATH ----------------
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -16,30 +16,33 @@ DB_PATH = os.path.join(BASE_DIR, "db", "new_db.db")
 
 # ---------------- DATABASE ----------------
 conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+conn.row_factory = sqlite3.Row  # allows column name access
 cursor = conn.cursor()
 
-# Create table if not exists
+# Ensure brake_pressure_log table exists
 cursor.execute("""
 CREATE TABLE IF NOT EXISTS brake_pressure_log (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+    device_id TEXT,
     BP_raw INTEGER,
     FP_raw INTEGER,
     CR_raw INTEGER,
     BC_raw INTEGER,
+    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
     uploaded INTEGER DEFAULT 0
 )
 """)
 conn.commit()
 
-# ---------------- DEVICE CONFIG ----------------
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS device_config (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    device_id TEXT UNIQUE
-)
-""")
-conn.commit()
+# ---------------- FETCH DEVICE ID ----------------
+cursor.execute("SELECT device_id FROM device_config LIMIT 1")
+DEVICE_ROW = cursor.fetchone()
+if DEVICE_ROW and DEVICE_ROW["device_id"]:
+    DEVICE_ID = DEVICE_ROW["device_id"]
+    print(f"✅ Device ID = {DEVICE_ID}\n", flush=True)
+else:
+    DEVICE_ID = "UNKNOWN"
+    print("⚠️ Device ID missing!", flush=True)
 
 # ---------------- ADS1115 SENSOR ----------------
 ADS_AVAILABLE = True
@@ -61,7 +64,7 @@ try:
 except Exception:
     ADS_AVAILABLE = False
 
-# ---------------- READ SENSOR FUNCTION ----------------
+# ---------------- SENSOR READ FUNCTION ----------------
 def read_raw_values():
     if ADS_AVAILABLE:
         return (
@@ -74,18 +77,21 @@ def read_raw_values():
 
 # ---------------- MAIN LOOP ----------------
 print("🚀 Capture system started...\n", flush=True)
-last_raw = None
 
-# Fetch device_id
-cursor.execute("SELECT device_id FROM device_config LIMIT 1")
-DEVICE_ID_ROW = cursor.fetchone()
-DEVICE_ID = DEVICE_ID_ROW["device_id"] if DEVICE_ID_ROW else "UNKNOWN"
+last_raw = None
 
 while True:
     current_raw = read_raw_values()
     timestamp = time.strftime('%Y-%m-%d %H:%M:%S')
 
-    print(f"Device_id = {DEVICE_ID}, BP_raw={current_raw[0]}, FP_raw={current_raw[1]}, CR_raw={current_raw[2]}, BC_raw={current_raw[3]}, timestamp={timestamp}", flush=True)
+    # Print output format
+    print(
+        f"device_id = {DEVICE_ID}, "
+        f"BP_raw = {current_raw[0]}, FP_raw = {current_raw[1]}, "
+        f"CR_raw = {current_raw[2]}, BC_raw = {current_raw[3]}, "
+        f"timestamp = {timestamp}",
+        flush=True
+    )
 
     upload = False
     if last_raw is None:
@@ -97,13 +103,14 @@ while True:
 
     if upload:
         cursor.execute("""
-            INSERT INTO brake_pressure_log (BP_raw, FP_raw, CR_raw, BC_raw)
-            VALUES (?, ?, ?, ?)
-        """, (*current_raw,))
+            INSERT INTO brake_pressure_log
+            (device_id, BP_raw, FP_raw, CR_raw, BC_raw, timestamp)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (DEVICE_ID, *current_raw, timestamp))
         conn.commit()
         last_raw = current_raw
-        print("✅ Data inserted into DB", flush=True)
+        print(f"✅ Data inserted into DB at {timestamp}\n", flush=True)
     else:
-        print("⏭ No significant change → Skipped insert", flush=True)
+        print("⏭ No significant change → Skipped insert\n", flush=True)
 
     time.sleep(READ_INTERVAL)
