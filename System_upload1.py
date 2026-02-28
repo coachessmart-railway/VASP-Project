@@ -78,7 +78,7 @@ def connect_mqtt():
         except Exception as e:
             print("⚠️ MQTT connect error:", e, "Retrying in 5 sec...", flush=True)
             time.sleep(5)
-        time.sleep(1)
+        time.sleep(0.5)
 
 connect_mqtt()
 
@@ -116,7 +116,7 @@ def main_loop():
         """)
         rows = cursor.fetchall()
         if not rows:
-            time.sleep(5)
+            time.sleep(0.5)
             continue
 
         for row in rows:
@@ -127,8 +127,8 @@ def main_loop():
                 )
                 conn.commit()
             else:
-                time.sleep(5)  # retry later
-            time.sleep(1)
+                time.sleep(0.5)  # retry later
+            time.sleep(0.5)
 
 # ---------------- GRACEFUL SHUTDOWN ----------------
 def shutdown(sig, frame):
