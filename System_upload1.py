@@ -16,6 +16,12 @@ CA_PATH   = os.path.join(AWS_PATH, "AmazonRootCA1.pem")
 CERT_PATH = os.path.join(AWS_PATH, "certificate.pem.crt")
 KEY_PATH  = os.path.join(AWS_PATH, "private.pem.key")
 
+# ---------------- CHECK FILES ----------------
+for f in [DB_PATH, CA_PATH, CERT_PATH, KEY_PATH]:
+    if not os.path.exists(f):
+        print(f"❌ Missing file: {f}", flush=True)
+        sys.exit(1)
+
 # ---------------- MQTT CONFIG ----------------
 ENDPOINT  = "a1vddjuckiz90j-ats.iot.ap-south-1.amazonaws.com"
 PORT      = 8883
@@ -23,15 +29,12 @@ CLIENT_ID = "Raspberrypi_4A"  # unique AWS client ID
 TOPIC     = "brake/pressure"
 
 # ---------------- DATABASE ----------------
-if not os.path.exists(DB_PATH):
-    print(f"❌ Database not found: {DB_PATH}", flush=True)
-    sys.exit(1)
-
 conn = sqlite3.connect(DB_PATH)
 conn.row_factory = sqlite3.Row
 cursor = conn.cursor()
 
 # ---------------- MQTT FLAGS ----------------
+mqtt_client = None
 mqtt_connected = False
 
 # ---------------- MQTT CALLBACKS ----------------
@@ -47,48 +50,44 @@ def on_connect(client, userdata, flags, rc):
 def on_disconnect(client, userdata, rc):
     global mqtt_connected
     mqtt_connected = False
-    print("⚠️ MQTT disconnected. Retrying in 5 sec...", flush=True)
-    time.sleep(5)
-    try:
-        client.reconnect()
-    except Exception as e:
-        print("❌ MQTT reconnect failed:", e, flush=True)
+    print("⚠️ MQTT disconnected. Will automatically reconnect...", flush=True)
 
 def on_publish(client, userdata, mid):
-    print("📤 Data published to AWS IoT", flush=True)
+    print("📤 Data published successfully", flush=True)
 
 # ---------------- CONNECT MQTT ----------------
 def connect_mqtt():
-    client = mqtt.Client(client_id=CLIENT_ID, protocol=mqtt.MQTTv311)
-    client.tls_set(
+    global mqtt_client
+    mqtt_client = mqtt.Client(client_id=CLIENT_ID, protocol=mqtt.MQTTv311)
+    mqtt_client.tls_set(
         ca_certs=CA_PATH,
         certfile=CERT_PATH,
         keyfile=KEY_PATH,
         tls_version=ssl.PROTOCOL_TLSv1_2
     )
-    client.on_connect = on_connect
-    client.on_disconnect = on_disconnect
-    client.on_publish = on_publish
+    mqtt_client.on_connect = on_connect
+    mqtt_client.on_disconnect = on_disconnect
+    mqtt_client.on_publish = on_publish
 
-    client.loop_start()
+    mqtt_client.loop_start()  # background loop
 
+    # Try connecting until success
     while not mqtt_connected:
         try:
-            client.connect(ENDPOINT, PORT, keepalive=60)
-            print("Connecting to MQTT...", flush=True)
+            mqtt_client.connect(ENDPOINT, PORT, keepalive=60)
         except Exception as e:
             print("⚠️ MQTT connect error:", e, "Retrying in 5 sec...", flush=True)
-        time.sleep(2)
-    return client
+            time.sleep(5)
+        time.sleep(1)
 
-mqtt_client = connect_mqtt()
+connect_mqtt()
 
 # ---------------- UPLOAD FUNCTION ----------------
 def upload_row(row):
     global mqtt_connected
-    while not mqtt_connected:
-        print("⚠️ Waiting for MQTT connection...", flush=True)
-        time.sleep(1)
+    if not mqtt_connected:
+        print("⚠️ MQTT not connected. Skipping upload.", flush=True)
+        return False
 
     payload = {
         "device_id": row["device_id"],
@@ -121,16 +120,15 @@ def main_loop():
             continue
 
         for row in rows:
-            success = upload_row(row)
-            if success:
+            if upload_row(row):
                 cursor.execute(
                     "UPDATE brake_pressure_log SET uploaded = 1 WHERE id = ?",
                     (row["id"],)
                 )
                 conn.commit()
             else:
-                break
-            time.sleep(2)
+                time.sleep(5)  # retry later
+            time.sleep(1)
 
 # ---------------- GRACEFUL SHUTDOWN ----------------
 def shutdown(sig, frame):
