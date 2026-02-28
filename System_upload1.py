@@ -30,11 +30,11 @@ def get_device_id():
         result = cursor.fetchone()
         conn.close()
 
-        if result:
-            print(f"\n The Device id is assigned : {result[0]}\n", flush=True)
+        if result and result[0]:
+            print(f"\n✅ Device ID is assigned: {result[0]}\n", flush=True)
             return result[0]
         else:
-            print("\n Device id not assigned\n", flush=True)
+            print("\n⚠️ Device ID missing or not found!\n", flush=True)
             return None
 
     except Exception as e:
@@ -43,19 +43,17 @@ def get_device_id():
 
 
 DEVICE_ID = get_device_id()
-
 if DEVICE_ID is None:
-    print(" Exiting uploader because device_id is missing.", flush=True)
+    print("❌ Exiting uploader because device_id is missing.", flush=True)
     exit()
 
 # ==============================
 # VERIFY CERTIFICATES
 # ==============================
 print("🔎 Verifying certificate files...\n", flush=True)
-
 for file_path in [ROOT_CA, CERTIFICATE, PRIVATE_KEY]:
     if not os.path.exists(file_path):
-        print(f" Missing file: {file_path}", flush=True)
+        print(f"❌ Missing file: {file_path}", flush=True)
         exit()
     else:
         print(f"✅ Found: {file_path}", flush=True)
@@ -69,10 +67,9 @@ conn = sqlite3.connect(DB_PATH, check_same_thread=False)
 conn.row_factory = sqlite3.Row
 cur = conn.cursor()
 
-# Ensure uploaded column exists
+# Ensure 'uploaded' column exists
 cur.execute("PRAGMA table_info(brake_pressure_log)")
 columns = [col[1] for col in cur.fetchall()]
-
 if "uploaded" not in columns:
     print("Adding 'uploaded' column...", flush=True)
     cur.execute("ALTER TABLE brake_pressure_log ADD COLUMN uploaded INTEGER DEFAULT 0")
@@ -92,11 +89,19 @@ mqtt_client.configureDrainingFrequency(2)
 mqtt_client.configureConnectDisconnectTimeout(10)
 mqtt_client.configureMQTTOperationTimeout(5)
 
-mqtt_client.onOnline = lambda: print(" MQTT Connected to AWS IoT Core", flush=True)
-mqtt_client.onOffline = lambda: print("MQTT Disconnected from AWS IoT Core", flush=True)
-
-print("🔌 Connecting to AWS IoT Core...\n", flush=True)
-mqtt_client.connect()
+# ==============================
+# CONNECT TO AWS IOT WITH RETRY
+# ==============================
+connected = False
+while not connected:
+    try:
+        mqtt_client.connect()
+        print("✅ Connected to AWS IoT Core\n", flush=True)
+        connected = True
+    except Exception as e:
+        print(f"⚠️ MQTT Connection failed: {e}", flush=True)
+        print("Retrying in 5 seconds...\n", flush=True)
+        time.sleep(5)
 
 # ==============================
 # MAIN LOOP
@@ -109,7 +114,6 @@ while True:
             ORDER BY timestamp ASC
             LIMIT 1
         """)
-
         row = cur.fetchone()
 
         if row:
@@ -135,25 +139,19 @@ while True:
             )
             conn.commit()
 
-            # ================= OUTPUT FORMAT =================
+            # ================= OUTPUT =================
             print("\n================================================", flush=True)
             print("📤 Data Published to AWS IoT Core", flush=True)
             print(f"Device_id = {DEVICE_ID}\n", flush=True)
-
             print("Data Uploaded :", flush=True)
             print(payload_pretty, flush=True)
-
-            print("\nPayload Sent:", flush=True)
-            print(payload_json, flush=True)
-
             print("================================================\n", flush=True)
-
         else:
-            print("No new data to upload...", flush=True)
+            print("⏳ No new data to upload...", flush=True)
 
         time.sleep(2)
 
     except Exception as e:
-        print("\n Runtime Error:", e, flush=True)
-        print("Retrying in 5 seconds...", flush=True)
+        print("\n⚠️ Runtime Error:", e, flush=True)
+        print("Retrying in 5 seconds...\n", flush=True)
         time.sleep(0.5)
