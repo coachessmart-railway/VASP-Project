@@ -25,7 +25,7 @@ for f in [DB_PATH, CA_PATH, CERT_PATH, KEY_PATH]:
 # ---------------- MQTT CONFIG ----------------
 ENDPOINT  = "a1vddjuckiz90j-ats.iot.ap-south-1.amazonaws.com"
 PORT      = 8883
-CLIENT_ID = "Raspberrypi_4A"  # unique AWS client ID
+CLIENT_ID = "Raspberrypi_4A"
 TOPIC     = "brake/pressure"
 
 # ---------------- DATABASE ----------------
@@ -50,14 +50,14 @@ def on_connect(client, userdata, flags, rc):
 def on_disconnect(client, userdata, rc):
     global mqtt_connected
     mqtt_connected = False
-    print("⚠️ MQTT disconnected. Will automatically reconnect...", flush=True)
+    print("⚠️ MQTT disconnected. Will reconnect automatically.", flush=True)
 
 def on_publish(client, userdata, mid):
     print("📤 Data published successfully", flush=True)
 
 # ---------------- CONNECT MQTT ----------------
 def connect_mqtt():
-    global mqtt_client
+    global mqtt_client, mqtt_connected
     mqtt_client = mqtt.Client(client_id=CLIENT_ID, protocol=mqtt.MQTTv311)
     mqtt_client.tls_set(
         ca_certs=CA_PATH,
@@ -69,25 +69,24 @@ def connect_mqtt():
     mqtt_client.on_disconnect = on_disconnect
     mqtt_client.on_publish = on_publish
 
-    mqtt_client.loop_start()  # background loop
+    mqtt_client.loop_start()  # background network loop
 
-    # Try connecting until success
     while not mqtt_connected:
         try:
             mqtt_client.connect(ENDPOINT, PORT, keepalive=60)
         except Exception as e:
             print("⚠️ MQTT connect error:", e, "Retrying in 5 sec...", flush=True)
             time.sleep(5)
-        time.sleep(0.5)
+        time.sleep(1)
 
 connect_mqtt()
 
 # ---------------- UPLOAD FUNCTION ----------------
 def upload_row(row):
     global mqtt_connected
-    if not mqtt_connected:
-        print("⚠️ MQTT not connected. Skipping upload.", flush=True)
-        return False
+    while not mqtt_connected:
+        print("⚠️ Waiting for MQTT connection before upload...", flush=True)
+        time.sleep(2)
 
     payload = {
         "device_id": row["device_id"],
@@ -116,7 +115,7 @@ def main_loop():
         """)
         rows = cursor.fetchall()
         if not rows:
-            time.sleep(0.5)
+            time.sleep(5)
             continue
 
         for row in rows:
@@ -127,8 +126,9 @@ def main_loop():
                 )
                 conn.commit()
             else:
-                time.sleep(0.5)  # retry later
-            time.sleep(0.5)
+                print("⚠️ Upload failed. Will retry in next loop.", flush=True)
+                time.sleep(5)  # wait before retrying
+            time.sleep(1)
 
 # ---------------- GRACEFUL SHUTDOWN ----------------
 def shutdown(sig, frame):
