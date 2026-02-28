@@ -17,16 +17,17 @@ KEY_PATH = os.path.join(BASE_DIR, "certs", "private.pem.key")
 # ---------------- MQTT CONFIG ----------------
 MQTT_ENDPOINT = "a1vddjuckiz90j-ats.iot.ap-south-1.amazonaws.com"
 CLIENT_ID = "Raspberrypi_4A"
-TOPIC = "brake/data"
+TOPIC = f"{CLIENT_ID}/data"  # Topic matches Thing name for AWS Test client
 
 # ---------------- DATABASE ----------------
 conn = sqlite3.connect(DB_PATH, check_same_thread=False)
 conn.row_factory = sqlite3.Row
 cursor = conn.cursor()
 
-# ---------------- MQTT CALLBACKS ----------------
+# ---------------- MQTT CONNECTION FLAG ----------------
 mqtt_connected = False
 
+# ---------------- MQTT CALLBACKS ----------------
 def on_connect(client, userdata, flags, rc):
     global mqtt_connected
     if rc == 0:
@@ -34,34 +35,41 @@ def on_connect(client, userdata, flags, rc):
         print("✅ Connected to AWS IoT Core")
     else:
         mqtt_connected = False
-        print(f"❌ MQTT Connection failed with code {rc}")
+        print(f"❌ MQTT connection failed with code {rc}")
 
 def on_disconnect(client, userdata, rc):
     global mqtt_connected
     mqtt_connected = False
     print("⚠️ MQTT disconnected. Will reconnect automatically...")
 
-# ---------------- MQTT CLIENT SETUP ----------------
+# ---------------- MQTT CLIENT ----------------
 mqtt_client = mqtt.Client(client_id=CLIENT_ID, protocol=mqtt.MQTTv311)
-mqtt_client.tls_set(ca_certs=CA_PATH, certfile=CERT_PATH, keyfile=KEY_PATH, tls_version=ssl.PROTOCOL_TLSv1_2)
+mqtt_client.tls_set(ca_certs=CA_PATH,
+                    certfile=CERT_PATH,
+                    keyfile=KEY_PATH,
+                    tls_version=ssl.PROTOCOL_TLSv1_2)
 mqtt_client.on_connect = on_connect
 mqtt_client.on_disconnect = on_disconnect
 mqtt_client.loop_start()
 
-# Initial connect
-mqtt_client.connect(MQTT_ENDPOINT, port=8883)
-time.sleep(2)
+# ---------------- INITIAL CONNECT ----------------
+while not mqtt_connected:
+    try:
+        mqtt_client.connect(MQTT_ENDPOINT, port=8883)
+    except Exception as e:
+        print(f"❌ MQTT connect failed: {e}, retrying in 2 sec...")
+        time.sleep(2)
+    time.sleep(1)
 
 print("🚀 Uploader started...\n")
 
-# ---------------- MAIN UPLOAD LOOP ----------------
+# ---------------- MAIN LOOP ----------------
 while True:
     # Fetch all unuploaded rows
     cursor.execute("SELECT * FROM brake_pressure_log WHERE uploaded=0 ORDER BY timestamp ASC")
     rows = cursor.fetchall()
 
     if not rows:
-        # No new rows, just wait
         time.sleep(0.5)
         continue
 
@@ -82,7 +90,11 @@ while True:
         # Wait until MQTT is connected
         while not mqtt_connected:
             print("⚠️ Waiting for MQTT connection before upload...")
-            time.sleep(0.5)
+            try:
+                mqtt_client.reconnect()
+            except Exception as e:
+                print(f"❌ MQTT reconnect failed: {e}, retrying in 1 sec...")
+            time.sleep(1)
 
         # Publish to AWS IoT
         try:
@@ -93,6 +105,6 @@ while True:
             conn.commit()
         except Exception as e:
             print(f"❌ Failed to publish row id={row['id']}: {e}")
-            time.sleep(1)  # Retry shortly
+            time.sleep(1)
 
-    time.sleep(0.5)  # Delay between loops
+    time.sleep(0.5)
