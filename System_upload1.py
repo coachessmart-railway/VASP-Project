@@ -1,35 +1,37 @@
 import sqlite3
-import time
 import json
 import ssl
 import os
+import time
 import paho.mqtt.client as mqtt
 import signal
 import sys
 
 # ---------------- BASE PATH ----------------
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DB_PATH = os.path.join(BASE_DIR, "db", "new_db.db")
-CERTS_PATH = os.path.join(BASE_DIR, "certs")
+BASE_PATH = os.path.dirname(os.path.abspath(__file__))
+DB_PATH = os.path.join(BASE_PATH, "db", "new_db.db")
+AWS_PATH = os.path.join(BASE_PATH, "certs")
 
-CA_PATH = os.path.join(CERTS_PATH, "AmazonRootCA1.pem")
-CERT_PATH = os.path.join(CERTS_PATH, "certificate.pem.crt")
-KEY_PATH = os.path.join(CERTS_PATH, "private.pem.key")
+CA_PATH   = os.path.join(AWS_PATH, "AmazonRootCA1.pem")
+CERT_PATH = os.path.join(AWS_PATH, "certificate.pem.crt")
+KEY_PATH  = os.path.join(AWS_PATH, "private.pem.key")
 
 # ---------------- MQTT CONFIG ----------------
-ENDPOINT = "a1vddjuckiz90j-ats.iot.ap-south-1.amazonaws.com"
-PORT = 8883
-CLIENT_ID = "Raspberrypi_4A"  # unique client ID
-TOPIC = "brake/pressure"
+ENDPOINT  = "a1vddjuckiz90j-ats.iot.ap-south-1.amazonaws.com"
+PORT      = 8883
+CLIENT_ID = "Raspberrypi_4A"
+TOPIC     = "brake/pressure"
 
 # ---------------- DATABASE ----------------
+os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
 conn = sqlite3.connect(DB_PATH, check_same_thread=False)
 conn.row_factory = sqlite3.Row
 cursor = conn.cursor()
 
-# ---------------- MQTT CALLBACKS ----------------
+# ---------------- MQTT CONNECTION FLAG ----------------
 mqtt_connected = False
 
+# ---------------- CALLBACKS ----------------
 def on_connect(client, userdata, flags, rc):
     global mqtt_connected
     if rc == 0:
@@ -45,7 +47,7 @@ def on_disconnect(client, userdata, rc):
     print("⚠️ MQTT disconnected. Will reconnect automatically...", flush=True)
 
 def on_publish(client, userdata, mid):
-    pass
+    pass  # Already printing in upload_row
 
 # ---------------- CONNECT MQTT ----------------
 def connect_mqtt():
@@ -59,26 +61,29 @@ def connect_mqtt():
         try:
             client.connect(ENDPOINT, PORT, keepalive=60)
             client.loop_start()
-            wait = 0
-            while not mqtt_connected and wait < 10:
-                time.sleep(1)
-                wait += 1
-            if mqtt_connected:
-                return client
+            break
         except Exception as e:
             print("⚠️ MQTT connect error:", e, "Retrying in 5 sec...", flush=True)
             time.sleep(5)
+    return client
 
 mqtt_client = connect_mqtt()
 
 # ---------------- UPLOAD FUNCTION ----------------
 def upload_row(row):
     global mqtt_connected
+
+    # Wait until MQTT is connected
+    wait_time = 0
+    while not mqtt_connected and wait_time < 10:
+        print("⚠️ Waiting for MQTT connection before upload...", flush=True)
+        time.sleep(0.5)
+        wait_time += 0.5
+
     if not mqtt_connected:
-        print("⚠️ MQTT not connected. Skipping upload...", flush=True)
+        print("❌ MQTT still not connected. Will retry later.", flush=True)
         return False
 
-    # Payload for AWS
     payload = {
         "device_id": row["device_id"],
         "timestamp": row["timestamp"],
@@ -88,7 +93,7 @@ def upload_row(row):
         "BC_raw": row["BC_raw"]
     }
 
-    # Terminal print: local DB row
+    # Print local DB row
     print(
         f"📥 Local DB row: device_id={row['device_id']}, "
         f"timestamp={row['timestamp']}, BP_raw={row['BP_raw']}, "
@@ -96,7 +101,6 @@ def upload_row(row):
         flush=True
     )
 
-    # Publish to AWS
     result = mqtt_client.publish(TOPIC, json.dumps(payload), qos=1)
     if result.rc == mqtt.MQTT_ERR_SUCCESS:
         print(f"📤 Sent to AWS IoT: {json.dumps(payload, ensure_ascii=False)}\n", flush=True)
@@ -114,8 +118,9 @@ def main_loop():
             ORDER BY timestamp ASC
         """)
         rows = cursor.fetchall()
+
         if not rows:
-            time.sleep(1)
+            time.sleep(0.5)
             continue
 
         for row in rows:
@@ -123,12 +128,10 @@ def main_loop():
             if success:
                 cursor.execute("UPDATE brake_pressure_log SET uploaded = 1 WHERE id = ?", (row["id"],))
                 conn.commit()
-            else:
-                # Retry in next iteration
                 time.sleep(0.5)
+            else:
+                # Stop this loop, retry in next iteration
                 break
-
-        time.sleep(0.5)
 
 # ---------------- GRACEFUL SHUTDOWN ----------------
 def shutdown(sig, frame):
@@ -141,5 +144,5 @@ signal.signal(signal.SIGINT, shutdown)
 signal.signal(signal.SIGTERM, shutdown)
 
 # ---------------- RUN ----------------
-print("🚀 AWS Uploader started...\n", flush=True)
+print("🚀 Uploader started...", flush=True)
 main_loop()
