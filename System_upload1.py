@@ -156,4 +156,4 @@ while True:
     except Exception as e:
         print("\n Runtime Error:", e, flush=True)
         print("Retrying in 5 seconds...", flush=True)
-        time.sleep(5)
+        time.sleep(0.5)
