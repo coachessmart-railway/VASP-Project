@@ -10,23 +10,23 @@ import paho.mqtt.client as mqtt
 # ---------------- BASE PATH ----------------
 BASE_PATH = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(BASE_PATH, "db", "new_db.db")
-AWS_PATH = os.path.join(BASE_PATH, "certs")
+CERTS_PATH = os.path.join(BASE_PATH, "certs")
 
-CA_PATH   = os.path.join(AWS_PATH, "AmazonRootCA1.pem")
-CERT_PATH = os.path.join(AWS_PATH, "certificate.pem.crt")
-KEY_PATH  = os.path.join(AWS_PATH, "private.pem.key")
+CA_PATH = os.path.join(CERTS_PATH, "AmazonRootCA1.pem")
+CERT_PATH = os.path.join(CERTS_PATH, "certificate.pem.crt")
+KEY_PATH = os.path.join(CERTS_PATH, "private.pem.key")
 
 # ---------------- CHECK FILES ----------------
 for f in [DB_PATH, CA_PATH, CERT_PATH, KEY_PATH]:
     if not os.path.exists(f):
-        print(f"❌ Missing file: {f}", flush=True)
+        print(f"❌ Missing file: {f}")
         sys.exit(1)
 
 # ---------------- MQTT CONFIG ----------------
-ENDPOINT  = "a1vddjuckiz90j-ats.iot.ap-south-1.amazonaws.com"
-PORT      = 8883
+ENDPOINT = "a1vddjuckiz90j-ats.iot.ap-south-1.amazonaws.com"
+PORT = 8883
 CLIENT_ID = "Raspberrypi_4A"
-TOPIC     = "brake/pressure"
+TOPIC = "brake/pressure"
 
 # ---------------- DATABASE ----------------
 conn = sqlite3.connect(DB_PATH)
@@ -42,18 +42,18 @@ def on_connect(client, userdata, flags, rc):
     global mqtt_connected
     if rc == 0:
         mqtt_connected = True
-        print("✅ Connected to AWS IoT Core", flush=True)
+        print("✅ Connected to AWS IoT Core")
     else:
         mqtt_connected = False
-        print("⚠️ MQTT connection failed, RC =", rc, flush=True)
+        print("⚠️ MQTT connection failed, RC =", rc)
 
 def on_disconnect(client, userdata, rc):
     global mqtt_connected
     mqtt_connected = False
-    print("⚠️ MQTT disconnected. Will reconnect automatically.", flush=True)
+    print("⚠️ MQTT disconnected. Will automatically reconnect in background.")
 
 def on_publish(client, userdata, mid):
-    print("📤 Data published successfully", flush=True)
+    print("📤 Data published successfully")
 
 # ---------------- CONNECT MQTT ----------------
 def connect_mqtt():
@@ -69,13 +69,14 @@ def connect_mqtt():
     mqtt_client.on_disconnect = on_disconnect
     mqtt_client.on_publish = on_publish
 
-    mqtt_client.loop_start()  # background network loop
-
+    mqtt_client.loop_start()
+    
+    # Initial connect loop
     while not mqtt_connected:
         try:
             mqtt_client.connect(ENDPOINT, PORT, keepalive=60)
         except Exception as e:
-            print("⚠️ MQTT connect error:", e, "Retrying in 5 sec...", flush=True)
+            print("⚠️ MQTT connect error:", e, "Retrying in 5 sec...")
             time.sleep(5)
         time.sleep(1)
 
@@ -85,7 +86,7 @@ connect_mqtt()
 def upload_row(row):
     global mqtt_connected
     while not mqtt_connected:
-        print("⚠️ Waiting for MQTT connection before upload...", flush=True)
+        print("⚠️ Waiting for MQTT connection before upload...")
         time.sleep(2)
 
     payload = {
@@ -99,10 +100,10 @@ def upload_row(row):
 
     result = mqtt_client.publish(TOPIC, json.dumps(payload), qos=1)
     if result.rc == mqtt.MQTT_ERR_SUCCESS:
-        print(f"📤 Uploaded: {json.dumps(payload, indent=2)}", flush=True)
+        print(f"📤 Uploaded: {json.dumps(payload, indent=2)}")
         return True
     else:
-        print("❌ Publish failed with RC:", result.rc, flush=True)
+        print("❌ Publish failed, RC:", result.rc)
         return False
 
 # ---------------- MAIN LOOP ----------------
@@ -126,13 +127,13 @@ def main_loop():
                 )
                 conn.commit()
             else:
-                print("⚠️ Upload failed. Will retry in next loop.", flush=True)
-                time.sleep(5)  # wait before retrying
+                print("⚠️ Upload failed. Will retry in next loop.")
+                time.sleep(0.5)
             time.sleep(1)
 
 # ---------------- GRACEFUL SHUTDOWN ----------------
 def shutdown(sig, frame):
-    print("🛑 Shutting down...", flush=True)
+    print("🛑 Shutting down...")
     mqtt_client.loop_stop()
     conn.close()
     sys.exit(0)
@@ -141,5 +142,5 @@ signal.signal(signal.SIGINT, shutdown)
 signal.signal(signal.SIGTERM, shutdown)
 
 # ---------------- RUN ----------------
-print("🚀 Uploader started...\n", flush=True)
+print("🚀 Uploader started...")
 main_loop()
