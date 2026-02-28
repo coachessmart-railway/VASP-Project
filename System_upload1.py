@@ -19,7 +19,7 @@ KEY_PATH  = os.path.join(AWS_PATH, "private.pem.key")
 # ---------------- MQTT CONFIG ----------------
 ENDPOINT  = "a1vddjuckiz90j-ats.iot.ap-south-1.amazonaws.com"
 PORT      = 8883
-CLIENT_ID = "Raspberrypi_4A"  # unique client ID
+CLIENT_ID = "Raspberrypi_4A"  # unique AWS client ID
 TOPIC     = "brake/pressure"
 
 # ---------------- DATABASE ----------------
@@ -30,17 +30,6 @@ if not os.path.exists(DB_PATH):
 conn = sqlite3.connect(DB_PATH)
 conn.row_factory = sqlite3.Row
 cursor = conn.cursor()
-
-# ---------------- FETCH DEVICE ID ----------------
-"""cursor.execute("SELECT device_id FROM device_config LIMIT 1")
-row = cursor.fetchone()
-DEVICE_ID = row["device_id"] if row else None
-
-if DEVICE_ID is None:
-    print("⚠️ Device ID missing in device_config table. Exiting...", flush=True)
-    sys.exit(1)
-else:
-    print(f"✅ Device ID: {DEVICE_ID}", flush=True)"""
 
 # ---------------- MQTT FLAGS ----------------
 mqtt_connected = False
@@ -89,7 +78,7 @@ def connect_mqtt():
             print("Connecting to MQTT...", flush=True)
         except Exception as e:
             print("⚠️ MQTT connect error:", e, "Retrying in 5 sec...", flush=True)
-        time.sleep(0.5)
+        time.sleep(2)
     return client
 
 mqtt_client = connect_mqtt()
@@ -99,23 +88,20 @@ def upload_row(row):
     global mqtt_connected
     while not mqtt_connected:
         print("⚠️ Waiting for MQTT connection...", flush=True)
-        time.sleep(0.5)
+        time.sleep(1)
 
     payload = {
-        "device_id": DEVICE_ID,
-        "timestamp": row["timestamp"],
-        "bp_raw": row["BP_raw"],
-        "fp_raw": row["FP_raw"],
-        "cr_raw": row["CR_raw"],
-        "bc_raw": row["BC_raw"]
+        "device_id": row["device_id"],
+        "BP_raw": row["BP_raw"],
+        "FP_raw": row["FP_raw"],
+        "CR_raw": row["CR_raw"],
+        "BC_raw": row["BC_raw"],
+        "timestamp": row["timestamp"]
     }
 
     result = mqtt_client.publish(TOPIC, json.dumps(payload), qos=1)
     if result.rc == mqtt.MQTT_ERR_SUCCESS:
-        print(
-            f"📤 Uploaded: device_id={DEVICE_ID}, BP={row['BP_raw']}, FP={row['FP_raw']}, "
-            f"CR={row['CR_raw']}, BC={row['BC_raw']}, timestamp={row['timestamp']}", flush=True
-        )
+        print(f"📤 Uploaded: {json.dumps(payload, indent=2)}", flush=True)
         return True
     else:
         print("❌ Publish failed with RC:", result.rc, flush=True)
@@ -131,8 +117,7 @@ def main_loop():
         """)
         rows = cursor.fetchall()
         if not rows:
-            print("No new data to upload. Waiting...", flush=True)
-            time.sleep(0.5)
+            time.sleep(5)
             continue
 
         for row in rows:
@@ -143,11 +128,9 @@ def main_loop():
                     (row["id"],)
                 )
                 conn.commit()
-                print(f"✅ Marked uploaded | id={row['id']}\n", flush=True)
             else:
-                print("Retrying upload later...", flush=True)
                 break
-            time.sleep(0.5)
+            time.sleep(2)
 
 # ---------------- GRACEFUL SHUTDOWN ----------------
 def shutdown(sig, frame):
