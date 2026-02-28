@@ -9,7 +9,7 @@ import sys
 
 # ---------------- BASE PATH ----------------
 BASE_PATH = os.path.dirname(os.path.abspath(__file__))
-DB_PATH = os.path.join(BASE_PATH, "db", "new_db.db")   # Correct DB
+DB_PATH = os.path.join(BASE_PATH, "db", "new_db.db")
 AWS_PATH = os.path.join(BASE_PATH, "certs")
 
 CA_PATH   = os.path.join(AWS_PATH, "AmazonRootCA1.pem")
@@ -19,12 +19,12 @@ KEY_PATH  = os.path.join(AWS_PATH, "private.pem.key")
 # ---------------- MQTT CONFIG ----------------
 ENDPOINT  = "a1vddjuckiz90j-ats.iot.ap-south-1.amazonaws.com"
 PORT      = 8883
-CLIENT_ID = "Raspberrypi_4A"  # MQTT client ID, separate from device_id
+CLIENT_ID = "Raspberrypi_4A"  # unique AWS IoT client ID
 TOPIC     = "brake/pressure"
 
 # ---------------- DATABASE ----------------
 if not os.path.exists(DB_PATH):
-    print(f"❌ Database not found: {DB_PATH}", flush=True)
+    print(f"❌ Database not found: {DB_PATH}")
     sys.exit(1)
 
 conn = sqlite3.connect(DB_PATH)
@@ -34,7 +34,7 @@ cursor = conn.cursor()
 # ---------------- FETCH DEVICE ID ----------------
 cursor.execute("SELECT device_id FROM device_config LIMIT 1")
 row = cursor.fetchone()
-DEVICE_ID = row[0] if row else None
+DEVICE_ID = row["device_id"] if row else None
 
 if DEVICE_ID is None:
     print("⚠️ Device ID missing in device_config table. Exiting...", flush=True)
@@ -85,7 +85,7 @@ mqtt_client = connect_mqtt()
 def upload_row(row):
     payload = {
         "device_id": DEVICE_ID,
-        "timestamp": row["created_at"],
+        "timestamp": row["timestamp"],
         "bp_raw": row["BP_raw"],
         "fp_raw": row["FP_raw"],
         "cr_raw": row["CR_raw"],
@@ -97,7 +97,7 @@ def upload_row(row):
             f"📤 Uploaded: device_id={DEVICE_ID}, "
             f"BP={row['BP_raw']}, FP={row['FP_raw']}, "
             f"CR={row['CR_raw']}, BC={row['BC_raw']}, "
-            f"timestamp={row['created_at']}", flush=True
+            f"timestamp={row['timestamp']}", flush=True
         )
         return True
     else:
@@ -110,7 +110,7 @@ def main_loop():
         cursor.execute("""
             SELECT * FROM brake_pressure_log
             WHERE uploaded = 0
-            ORDER BY created_at ASC
+            ORDER BY timestamp ASC
         """)
         rows = cursor.fetchall()
         if not rows:
