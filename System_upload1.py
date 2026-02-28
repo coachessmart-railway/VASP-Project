@@ -17,7 +17,7 @@ KEY_PATH = os.path.join(BASE_DIR, "certs", "private.pem.key")
 # ---------------- MQTT CONFIG ----------------
 MQTT_ENDPOINT = "a1vddjuckiz90j-ats.iot.ap-south-1.amazonaws.com"
 CLIENT_ID = "Raspberrypi_4A"
-TOPIC = brake/data"
+TOPIC = "brake/data"
 
 # ---------------- DATABASE ----------------
 conn = sqlite3.connect(DB_PATH, check_same_thread=False)
