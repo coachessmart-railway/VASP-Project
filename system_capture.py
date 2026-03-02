@@ -8,7 +8,7 @@ sys.stdout.reconfigure(encoding='utf-8')
 
 # ---------------- CONFIG ----------------
 RAW_THRESHOLD = 1638                 # ~0.5 bar equivalent
-READ_INTERVAL = 5                   # seconds
+READ_INTERVAL = 0.5                   # seconds
 
 # ---------------- DATABASE PATH ----------------
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))

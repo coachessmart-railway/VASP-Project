@@ -70,7 +70,7 @@ while True:
     rows = cursor.fetchall()
 
     if not rows:
-        time.sleep(0.5)
+        time.sleep(0.3)
         continue
 
     for row in rows:
@@ -105,6 +105,6 @@ while True:
             conn.commit()
         except Exception as e:
             print(f"❌ Failed to publish row id={row['id']}: {e}")
-            time.sleep(1)
+            time.sleep(0.2)
 
-    time.sleep(0.5)
+    time.sleep(0)
