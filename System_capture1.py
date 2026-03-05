@@ -61,8 +61,11 @@ try:
     cr_channel = AnalogIn(ads, 2)
     bc_channel = AnalogIn(ads, 3)
 
-except Exception:
+    print("✅ ADS1115 sensor detected and initialized.", flush=True)
+
+except Exception as e:
     ADS_AVAILABLE = False
+    print(f"⚠️ ADS1115 sensor not detected! ({e})", flush=True)
 
 # ---------------- SENSOR READ FUNCTION ----------------
 def read_raw_values():
@@ -81,15 +84,22 @@ print("🚀 Capture system started...\n", flush=True)
 last_raw = None
 
 while True:
-    current_raw = read_raw_values()
+    if ADS_AVAILABLE:
+        current_raw = read_raw_values()
+        ads_status = "Connected"
+    else:
+        current_raw = (0, 0, 0, 0)
+        ads_status = "Not connected"
+
     timestamp = time.strftime('%Y-%m-%d %H:%M:%S')
 
-    # Print output format
+    # Print output format including ADS1115 status
     print(
         f"device_id = {DEVICE_ID}, "
         f"BP_raw = {current_raw[0]}, FP_raw = {current_raw[1]}, "
         f"CR_raw = {current_raw[2]}, BC_raw = {current_raw[3]}, "
-        f"timestamp = {timestamp}",
+        f"timestamp = {timestamp}, "
+        f"ADS1115_status = {ads_status}",
         flush=True
     )
 
