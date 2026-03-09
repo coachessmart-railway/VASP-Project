@@ -56,11 +56,27 @@ Go to raspi configure
 # Step 1 – Update System
 sudo apt update
 sudo apt upgrade -y
+# then for error remove paste that :
+sudo apt update
+sudo apt install swig python3-dev build-essential -y
 # Step 2 – Enable I2C
+sudo apt update
+sudo apt install i2c-tools -y
 sudo raspi-config
 Go to:
 Interface Options → I2C → Enable
 Reboot Raspberry Pi.
+# Detect the i2c by :-
+ls /dev/i2c*
+i2cdetect -y 1
+output like that : -      
+0 1 2 3 4 5 6 7 8 9 a b c d e f
+00:  -- -- -- -- -- -- -- --
+10: -- -- -- -- -- -- -- -- -- -- -- --
+20: -- -- -- -- -- -- -- -- -- -- -- --
+30: -- -- -- -- -- -- -- -- -- -- -- --
+40: -- -- -- -- -- -- -- -- 48 -- -- --
+50: -- -- -- -- -- -- -- -- -- -- -- --
 
 ## SD Card Setup :
 country=INDIA
