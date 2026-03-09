@@ -10,15 +10,80 @@ This project monitors 4 sensor BP,BC,CR and FP using Raspberry Pi, stores data l
 - Cloud upload to AWS IoT / Supabase
 - Deep sleep mode for battery saving
 
+# Components of the Project :-
+1. Raspberry pi 4 Model B 
+2. SD Card 64 bit 
+3. PCB board (9cm*4cm) 
+2 .C -type Adopter charger .
+3. Normal 5v -2 Amp adopter ( for sensor charging)
+4. 160 ohm Resistore ----> quantity (4)
+5. ADS1115 16-bit ADC module 
+ # Pin sets :- BP ---> A0 , FP ----> A1 , CR -----> A2 , BC ------> A3 (according to code )
+6. 10k ohm resistor to the safety ( to voltage reduce safety point).
+7. Boost kit for sensor powering 
+8. Hydraulic Pressure sensor (digital type without) ---> quantity : 4
+9. Dongle 4G Laplace with Simcard (Airtel , Jio)
+10. Multimeter 
+11. Connector
+12. Insulation tape
+
+# Optional Required Project Material :
+1. Monitor 
+2. Keyboard
+3. Micro HDMI to HDMI Connectore (qty:1 ) optional
+4. Additional Sensor for safety
+
+# Hydraulic Pressure sensor Details (4-20mA)
+ Hydraulic Pressure Sensor (010BSC )
+The "010BSC" identifier often refers to a specific configuration within the Honeywell PX2 Series heavy-duty pressure  transducer line (specifically PX2CG1XX010BSCHX) or similar OEM sensors."""
+# Hydraulic Pressure Sensor Details :- 
+Brand	: Honeywell
+Model No :	MIPCG1XX010BSCHX (Media Isolated Pressure Series)- Sealed gage
+Electrical Connector : Type	DIN-C, Standard (EN175301-803C)
+Pressure Port Type :	G1/4 A-G3(ISO 1179-3)
+Pressure Range: 10 bar
+Current :	4 mA to 20 mA (4mA : 0.7 v and 20mA : 4.5 )
+Supply voltage (Vs) :	8 Vdc to 30 Vdc1
+Current consumption	 : 6.5 mA ±1 mA
+Over/reverse voltage : ±35 Vdc
+Total Error Band :	±1.0 %FSS (-20°C to 85°C)
+±2.0 %FSS (-40°C to 125°C)
+Operating temperature range : -40°C to 125°C
+
 ## Raspberry Pi Setup :-(2-3 Days)
 Go to raspi configure 
+. Raspberry Pi Setup
+# Step 1 – Update System
+sudo apt update
+sudo apt upgrade -y
+# Step 2 – Enable I2C
+sudo raspi-config
+Go to:
+Interface Options → I2C → Enable
+Reboot Raspberry Pi.
 
 ## SD Card Setup :
 country=INDIA
 ctrl_interface=DIR=/var/run/wpa_supplicant GROUP=netdev
 update_config=1
+# configure the file wpa.config 
+that add in the SD card in which 
+country=IN
+ctrl_interface=DIR=/var/run/wpa_supplicant GROUP=netdev
+update_config=1
+ network={
+    ssid="BSNL WaterApp-5G"
+    psk="Waterapp@1234"
+    priority=2
+}
 
 network={
+    ssid="VASP_Network"
+    psk="12345678"
+    priority=1
+}
+# SD card in which Raspberry pi Imager add the wifi which the Raspberry connection Deatils add to it 
+# network={
     ssid="YOUR_WIFI_SSID"
     psk="YOUR_WIFI_PASSWORD"
     key_mgmt=WPA-PSK
@@ -26,33 +91,71 @@ network={
 then update and download and the flash drive 
 set the username and Ip and set Password
 get it hostname & IP address for it .
+Hostname : Raspberry1 
+username :- pi_1234    ;  password :- raspberry ( to make sure to take same password or username for all device at Sd card flash process )
 
 ## INstall I2c :-(1-day)
 sudo apt update
 sudo apt upgrade -y
 sudo reboot
-
+# check the I2C connecion :
+i2cdetect -y 1 
+output like :- 48 
 
 ## Folder Structure(2 Days)
 RTBMS/
 ├── data/
 ├── src/pressure_project/
-│   ├── aws_iot/
-         ├──4 certificate file AWS
-│   ├── db/
-         ├── Database file
-│   ├── logs/
-│   ├── system_capture.py
-│   ├── system_upload.py
-│   ├── Dockerfile
-│   ├── docker-compose.yml
-│   └── requirements.txt
+# folder creation steps :- 
+mkdir data
+cd data
+mkdir src
+cd src
+mkdir pressure_project
+cd pressure_project
+then path got is "data/src/pressure_project" 
+
+# Git clone :
+sudo apt update
+sudo apt upgrade -y 
+git --version
+# If not installed then :- 
+sudo apt update
+sudo apt upgrade -y
+git clone "url"
+then type the password also ,
+# Configure Git (First Time Set)
+Check configuration:
+git config --list
+
+# Pressure_project senerio :
+pressure_project
+│
+├── certs
+│   ├── AmazonRootCA1.pem
+│   ├── private.pem.key
+│   └── certificate.pem.crt
+│
+├── db
+│   └── new_db.db
+│
+├── main.py
+├── config.py
+|──logs
+|── System_capture1.py
+│──System_upload1.py
+├── requirements.txt
+└── README.md
 
 ## Installation (1 Day)
 1. Enable I2C on Raspberry Pi (`sudo raspi-config`)
 2. Install required Python libraries:
    ```bash
-   pip3 install RPi.GPIO smbus2 adafruit-circuitpython-ina219 paho-mqtt flask requests
+# pip3 install RPi.GPIO smbus2 adafruit-circuitpython-ina219 paho-mqtt flask requests
+3. ALL Packages for the System Requirements :  
+# sudo apt install python3-pip
+ # pip3 install adafruit-circuitpython-ads1x15
+# pip3 install paho-mqtt
 3.INstall all the files
 4. Run all the files
 5. Updated all the files configured and check the working the sensor reading i2c is on or not 
@@ -82,6 +185,11 @@ Step-7: Get AWS IoT Endpoint
 In IoT Core, go to Settings and copy the IoT endpoint URL. This endpoint will be used in your Python, Docker, or device code for MQTT connection.
 Step-8: Use Certificates in Device Code
 Copy the downloaded certificate files into your project folder (for example aws_iot/). Configure your device or Docker container to use the certificate, private key, Root CA, and endpoint. Do not use IAM access keys inside device code.
+Step -9  : Use that certificate transfred to the certs folder 
+" data ----> src------> pressure_project------->VASP-Porject------->certs-------> "all certificate are in these path 
+step 10 :- rename The certificate file according to the code 
+e.g ; Amazonroot(CA1) .
+Step 11 : Publish the all data of differnt raspberry pi sensor data to same topic 
 
 ##AWS in S3 Creaated for Database :-
 Step-1: Open Amazon S3
@@ -171,8 +279,7 @@ Publish a test message to 'pressure/data', e.g.:
 
 {
   "device_id": "pressure01",
-  "vibration": 12.5,
-  "battery": 3.7
+  
 }
 Check Lambda logs in CloudWatch → confirm the trigger happened.
 You do not need to modify any Lambda code; AWS handles the trigger automatically.
@@ -184,11 +291,32 @@ Step-1: Create Supabase Table
 Go to Supabase
  → log in → create a new project.
 Open project → Database → Tables → New Table.
-Table name: pressure_data. Add columns:
+Table name: bpc_pressure. Add columns:
 device_id (text)
 timestamp (timestamp)
-vibration (float)
-battery (float)
+bp_raw (numeric) , bc_raw (numeric) , fp_raw (numeric) , cr_raw (numeric) .
+bp, fp ,cr, bc -----> Convert to the pressure value according to pressure calibration table 
+brake_status , brake_applied_time , brake _realsed_time , brake duration in sec .
+# pressure calibration table schmea accroding to create it
+| column_name    | data_type |
+| -------------- | --------- |
+| id             | bigint    |
+| device_id      | text      |
+| sensor_name    | text      |
+| sensor_type    | text      |
+| raw_value      | numeric   |
+| pressure_value | numeric   |
+# Brake event pass table schema according to create it 
+| column_name    | data_type                |
+| -------------- | ------------------------ |
+| id             | bigint                   |
+| timetstamp     | timestamp with time zone |
+| device_id      | text                     |
+| coach_no       | text                     |
+| fault_name     | text                     |
+| fault_duration | numeric                  |
+| event_message  | text                     |
+
 Save the table.
 Copy Project URL and Service Role Key (for Lambda access).
 
@@ -197,6 +325,7 @@ AWS Console → IoT Core → Act → Rules → Create rule.
 Rule name: send_to_supabase.
 SQL query: SELECT * FROM 'pressure/data'.
 SQL query: SELECT * FROM 'pressure/data'.
+preesure/data ----> "that topic name put in the code also "
 Add action → Send to Lambda → Create new Lambda (Python runtime).
 Add environment variables to Lambda:
 
@@ -237,6 +366,7 @@ Choose visualization type (Graph, Table, Gauge, etc.).
 Step-5: Save & Monitor
 Save the dashboard.
 Now any new data inserted into Supabase (from AWS IoT → Lambda) will be automatically visible in Grafana.
+
 ## Without the SSH Directly on the code files
 Step-2: Set Up Auto-Startup on Raspberry Pi (Without SSH) (1 Day)
 Option 1: Using cron (simplest)
