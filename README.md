@@ -294,9 +294,14 @@ In IoT Core, go to MQTT test client.
 Publish a test message to 'pressure/data', e.g.:
 
 {
-  "device_id": "pressure01",
-  
+  "device_id": "Raspberry4_4",
+  "timestamp": "2026-03-09 15:49:33",
+  "BP_raw": 2768,
+  "FP_raw": 28224,
+  "CR_raw": 16976,
+  "BC_raw": 19328
 }
+
 Check Lambda logs in CloudWatch → confirm the trigger happened.
 You do not need to modify any Lambda code; AWS handles the trigger automatically.
 Step-9: Monitor and Debug
