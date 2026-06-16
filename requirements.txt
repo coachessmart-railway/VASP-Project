@@ -9,3 +9,5 @@ adafruit-circuitpython-ads1x15
 numpy
 paho-mqtt
 lgpio
+pyserial
+awsiotsdk
