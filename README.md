@@ -53,12 +53,29 @@ Operating temperature range : -40°C to 125°C
 ## Raspberry Pi Setup :-(2-3 Days)
 Go to raspi configure 
 . Raspberry Pi Setup
+## SSH SETUP :-
+ssh-keygen -R 192.168.1.38
 # Step 1 – Update System
 sudo apt update
 sudo apt upgrade -y
 # then for error remove paste that :
 sudo apt update
 sudo apt install swig python3-dev build-essential -y
+# If any package fails to then upgrade by it :
+sudo apt update
+sudo apt install python3-dev build-essential -y
+# Download the pip file :- 
+pip -r reuirements.txt
+# to check all files download or not 
+pip list
+pip show lgpio
+# Not install :- deactivate virtual enviroment  
+deactivate 
+# Then install all dependcies 
+sudo apt update
+sudo apt install python3-lgpio lgpio-utils liblgpio-dev -y
+source venv/bin/activate
+pip install lgpio
 # Step 2 – Enable I2C
 sudo apt update
 sudo apt install i2c-tools -y
@@ -78,6 +95,8 @@ output like that : -
 40: -- -- -- -- -- -- -- -- 48 -- -- --
 50: -- -- -- -- -- -- -- -- -- -- -- --
 
+## FOR VIRTUAL ENVIROMENT CODING :-
+python3 -m venv venv
 ## SD Card Setup :
 country=INDIA
 ctrl_interface=DIR=/var/run/wpa_supplicant GROUP=netdev
@@ -109,7 +128,18 @@ set the username and Ip and set Password
 get it hostname & IP address for it .
 Hostname : Raspberry1 
 username :- pi_1234    ;  password :- raspberry ( to make sure to take same password or username for all device at Sd card flash process )
-
+# The db command for check 
+sqlite3 db/new_db.db
+## Create the table :
+CREATE TABLE IF NOT EXISTS device_config (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    device_id TEXT
+);
+## Inserting the Device id in it :
+INSERT INTO device_config (device_id)
+VALUES ('Raspberry4_4');
+then Checking for the id inserting or not is :
+SELECT * FROM device_config;
 ## INstall I2c :-(1-day)
 sudo apt update
 sudo apt upgrade -y
@@ -134,6 +164,8 @@ then path got is "data/src/pressure_project"
 # Git clone :
 sudo apt update
 sudo apt upgrade -y 
+# For git download :
+sudo apt install git -y 
 git --version
 # If not installed then :- 
 sudo apt update
@@ -143,6 +175,17 @@ then type the password also ,
 # Configure Git (First Time Set)
 Check configuration:
 git config --list
+# Download the sqlite :- 
+sudo apt install sqlite3 -y
+sqlite --version
+# Download the virtual enviroments :
+sudo apt update
+sudo apt install python3-venv -y
+create by the :- python3 -m venv venv
+# To transfer the certs in all AWS folder :
+scp "link" pi_1234@YOUR_PI_IP:/home/pi_1234/data/src/pressure_project/VASP-Project/certs/
+# Download all the requirements : 
+pip install -r requirements.txt
 
 # Pressure_project senerio :
 pressure_project

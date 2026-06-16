@@ -53,7 +53,7 @@ def wait_for_network(host="8.8.8.8", port=53, timeout=3):
             return True
         except Exception:
             print("⚠️ Network not ready, waiting 5s...")
-            time.sleep(5)
+            time.sleep(3)
 
 wait_for_network()
 
@@ -98,7 +98,7 @@ def connect_mqtt():
             time.sleep(2)
         except Exception as e:
             print("❌ MQTT connect failed:", e)
-            time.sleep(5)
+            time.sleep(3)
 
 connect_mqtt()
 
@@ -153,7 +153,7 @@ try:
             print("❌ Error publishing:", e)
             CONNECTED = False  # Force reconnect
 
-        time.sleep(1)
+        time.sleep(0.1)
 
 finally:
     print("🔻 Shutting down cleanly...")
