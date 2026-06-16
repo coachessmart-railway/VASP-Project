@@ -15,17 +15,17 @@ SERIAL_PORT = "/dev/serial0"
 BAUD_RATE = 9600
 
 # =========================
-# Project Paths
+# Paths
 # =========================
-BASE_PATH = "/home/pi_1234/data/src/pressure_project/VASP-Project"
+BASE_DIR = "/home/pi_1234/data/src/pressure_project/VASP-Project"
 
-DB_DIR = BASE_PATH + "/db/HAMS_DB"
-DB_FILE = DB_DIR + "/hams_data.db"
+DB_DIR = os.path.join(BASE_DIR, "db", "HAMS_DB")
+DB_FILE = os.path.join(DB_DIR, "hams_data.db")
 
-CERT_DIR = BASE_PATH + "/HAMS_certs"
-CERT_FILE = CERT_DIR + "/device_certificate.pem.crt"
-KEY_FILE = CERT_DIR + "/private_key.pem.key"
-ROOT_CA_FILE = CERT_DIR + "/root_ca.pem"
+CERT_DIR = os.path.join(BASE_DIR, "HAMS_certs")
+CA_PATH = os.path.join(CERT_DIR, "AmazonRootCA1.pem")
+CERT_PATH = os.path.join(CERT_DIR, "certificate.pem.crt")
+KEY_PATH = os.path.join(CERT_DIR, "private.pem.key")
 
 # =========================
 # AWS IoT Core
@@ -134,21 +134,11 @@ def save_to_db(data):
 
     cur.execute("""
     INSERT INTO hams_data (
-        device_id,
-        received_timestamp,
-        device_time,
-        temperature,
-        status,
-        temp_state,
-        resistance,
-        pt1000_voltage,
-        pt1000_adc,
-        battery_ads_voltage,
-        battery_voltage,
-        battery_adc,
-        message,
-        raw_data,
-        aws_publish_status
+        device_id, received_timestamp, device_time,
+        temperature, status, temp_state,
+        resistance, pt1000_voltage, pt1000_adc,
+        battery_ads_voltage, battery_voltage, battery_adc,
+        message, raw_data, aws_publish_status
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
         data.get("device_id"),
@@ -171,49 +161,65 @@ def save_to_db(data):
     row_id = cur.lastrowid
     con.commit()
     con.close()
-
     return row_id
 
 
 def update_aws_status(row_id, status):
     con = sqlite3.connect(DB_FILE)
     cur = con.cursor()
-
-    cur.execute(
-        "UPDATE hams_data SET aws_publish_status=? WHERE id=?",
-        (status, row_id)
-    )
-
+    cur.execute("UPDATE hams_data SET aws_publish_status=? WHERE id=?", (status, row_id))
     con.commit()
     con.close()
 
 
 def connect_aws():
-    mqtt_connection = mqtt_connection_builder.mtls_from_path(
-        endpoint=AWS_ENDPOINT,
-        cert_filepath=CERT_FILE,
-        pri_key_filepath=KEY_FILE,
-        ca_filepath=ROOT_CA_FILE,
-        client_id=CLIENT_ID,
-        clean_session=False,
-        keep_alive_secs=30
-    )
+    while True:
+        try:
+            print("Connecting to AWS IoT Core...")
 
-    print("Connecting to AWS IoT Core...")
-    mqtt_connection.connect().result()
-    print("Connected to AWS IoT Core")
+            mqtt_connection = mqtt_connection_builder.mtls_from_path(
+                endpoint=AWS_ENDPOINT,
+                cert_filepath=CERT_PATH,
+                pri_key_filepath=KEY_PATH,
+                ca_filepath=CA_PATH,
+                client_id=CLIENT_ID,
+                clean_session=False,
+                keep_alive_secs=30
+            )
 
+            mqtt_connection.connect().result()
+            print("Connected to AWS IoT Core")
+            return mqtt_connection
+
+        except Exception as e:
+            print("AWS disconnected / connection failed:", e)
+            print("Reconnecting to AWS IoT Core in 10 seconds...")
+            time.sleep(10)
+
+
+def reconnect_aws(old_connection=None):
+    try:
+        if old_connection:
+            old_connection.disconnect().result()
+    except Exception:
+        pass
+
+    print("MQTT disconnected. Trying automatic reconnect...")
+    mqtt_connection = connect_aws()
+    print("MQTT reconnected successfully")
     return mqtt_connection
 
 
 def publish_to_aws(mqtt_connection, data):
     payload = json.dumps(data)
 
-    mqtt_connection.publish(
+    publish_future, packet_id = mqtt_connection.publish(
         topic=TOPIC,
         payload=payload,
         qos=mqtt.QoS.AT_LEAST_ONCE
     )
+
+    publish_future.result()
 
 
 def main():
@@ -253,9 +259,20 @@ def main():
                         publish_to_aws(mqtt_connection, data)
                         update_aws_status(row_id, "published")
                         print("Published to AWS IoT Core")
+
                     except Exception as e:
+                        print("AWS publish failed / MQTT disconnected:", e)
                         update_aws_status(row_id, "failed")
-                        print("AWS publish failed:", e)
+
+                        mqtt_connection = reconnect_aws(mqtt_connection)
+
+                        try:
+                            publish_to_aws(mqtt_connection, data)
+                            update_aws_status(row_id, "published")
+                            print("Published to AWS IoT Core after reconnect")
+                        except Exception as e2:
+                            update_aws_status(row_id, "failed")
+                            print("Publish failed even after reconnect:", e2)
 
                     print("-----------------------------------")
                     buffer = ""
@@ -265,11 +282,16 @@ def main():
             break
 
         except Exception as e:
-            print("Error:", e)
+            print("Main loop error:", e)
             time.sleep(2)
 
     ser.close()
-    mqtt_connection.disconnect().result()
+
+    try:
+        mqtt_connection.disconnect().result()
+        print("AWS MQTT disconnected safely")
+    except Exception:
+        pass
 
 
 if __name__ == "__main__":
