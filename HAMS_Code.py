@@ -2,7 +2,6 @@ import serial
 import sqlite3
 import json
 import os
-import re
 import time
 from datetime import datetime
 from awscrt import mqtt
@@ -66,66 +65,37 @@ def init_db():
     con.close()
 
 
-def get_float(text):
-    match = re.search(r"-?\d+\.?\d*", text)
-    return float(match.group()) if match else None
+def parse_compact_packet(line):
+    parts = line.strip().split(",")
 
+    if len(parts) != 11:
+        print("Invalid packet length:", len(parts))
+        return None
 
-def get_int(text):
-    match = re.search(r"-?\d+", text)
-    return int(match.group()) if match else None
+    try:
+        data = {
+            "received_timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "device_id": parts[0],
+            "device_time": parts[1] + " sec",
+            "temperature": float(parts[2]),
+            "status": parts[3],
+            "temp_state": parts[4],
+            "resistance": float(parts[5]),
+            "pt1000_voltage": float(parts[6]),
+            "pt1000_adc": int(parts[7]),
+            "battery_ads_voltage": float(parts[8]),
+            "battery_voltage": float(parts[9]),
+            "battery_adc": int(parts[10]),
+            "message": "LoRa data received successfully",
+            "raw_data": line,
+            "aws_publish_status": "pending"
+        }
 
+        return data
 
-def parse_hams_packet(raw_data):
-    data = {
-        "received_timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "raw_data": raw_data,
-        "aws_publish_status": "pending"
-    }
-
-    for line in raw_data.splitlines():
-        line = line.strip()
-
-        if line.startswith("ID"):
-            data["device_id"] = line.split(":", 1)[1].strip()
-
-        elif line.startswith("Time"):
-            data["device_time"] = line.split(":", 1)[1].strip()
-
-        elif line.startswith("Temperature"):
-            data["temperature"] = get_float(line)
-
-            status_match = re.search(r'Status\s*=\s*"([^"]+)"', line)
-            state_match = re.search(r'Temp_State\s*=\s*"([^"]+)"', line)
-
-            if status_match:
-                data["status"] = status_match.group(1)
-
-            if state_match:
-                data["temp_state"] = state_match.group(1)
-
-        elif line.startswith("Resistance"):
-            data["resistance"] = get_float(line)
-
-        elif line.startswith("PT1000 Voltage"):
-            data["pt1000_voltage"] = get_float(line)
-
-        elif line.startswith("PT1000 ADC"):
-            data["pt1000_adc"] = get_int(line)
-
-        elif line.startswith("Battery ADS Vtg"):
-            data["battery_ads_voltage"] = get_float(line)
-
-        elif line.startswith("Battery Voltage"):
-            data["battery_voltage"] = get_float(line)
-
-        elif line.startswith("Battery ADC"):
-            data["battery_adc"] = get_int(line)
-
-        elif line.startswith("Message"):
-            data["message"] = line
-
-    return data
+    except Exception as e:
+        print("Packet parsing error:", e)
+        return None
 
 
 def save_to_db(data):
@@ -192,8 +162,8 @@ def connect_aws():
             return mqtt_connection
 
         except Exception as e:
-            print("AWS disconnected / connection failed:", e)
-            print("Reconnecting to AWS IoT Core in 10 seconds...")
+            print("AWS connection failed:", e)
+            print("Retrying AWS connection in 10 seconds...")
             time.sleep(10)
 
 
@@ -204,10 +174,8 @@ def reconnect_aws(old_connection=None):
     except Exception:
         pass
 
-    print("MQTT disconnected. Trying automatic reconnect...")
-    mqtt_connection = connect_aws()
-    print("MQTT reconnected successfully")
-    return mqtt_connection
+    print("MQTT disconnected. Reconnecting...")
+    return connect_aws()
 
 
 def publish_to_aws(mqtt_connection, data):
@@ -230,52 +198,55 @@ def main():
     ser = serial.Serial(SERIAL_PORT, BAUD_RATE, timeout=2)
 
     print("HAMS Raspberry Pi Master Receiver Started")
-    print("Waiting for LoRa data from HAMS001 to HAMS008...")
-
-    buffer = ""
+    print("Waiting for LoRa data...")
 
     while True:
         try:
             line = ser.readline().decode("utf-8", errors="ignore").strip()
 
-            if line:
-                print("RX:", line)
-                buffer += line + "\n"
+            if not line:
+                continue
 
-                if "LoRa data sent successfully" in line:
-                    data = parse_hams_packet(buffer)
+            print("RX:", line)
 
-                    if not data.get("device_id"):
-                        print("Invalid packet: Device ID missing")
-                        buffer = ""
-                        continue
+            # Ignore sleep message
+            if "SLEEP" in line or "deep sleep" in line:
+                print("Sleep message received. Not saving to DB.")
+                continue
 
-                    row_id = save_to_db(data)
-                    print("Saved offline DB. Row ID:", row_id)
+            # Parse received LoRa compact packet
+            data = parse_compact_packet(line)
 
-                    data["db_id"] = row_id
+            if data is None:
+                print("Invalid or incomplete packet. Not saved.")
+                print("-----------------------------------")
+                continue
 
-                    try:
-                        publish_to_aws(mqtt_connection, data)
-                        update_aws_status(row_id, "published")
-                        print("Published to AWS IoT Core")
+            row_id = save_to_db(data)
+            print("Saved offline DB. Row ID:", row_id)
 
-                    except Exception as e:
-                        print("AWS publish failed / MQTT disconnected:", e)
-                        update_aws_status(row_id, "failed")
+            data["db_id"] = row_id
 
-                        mqtt_connection = reconnect_aws(mqtt_connection)
+            try:
+                publish_to_aws(mqtt_connection, data)
+                update_aws_status(row_id, "published")
+                print("Published to AWS IoT Core")
 
-                        try:
-                            publish_to_aws(mqtt_connection, data)
-                            update_aws_status(row_id, "published")
-                            print("Published to AWS IoT Core after reconnect")
-                        except Exception as e2:
-                            update_aws_status(row_id, "failed")
-                            print("Publish failed even after reconnect:", e2)
+            except Exception as e:
+                print("AWS publish failed:", e)
+                update_aws_status(row_id, "failed")
 
-                    print("-----------------------------------")
-                    buffer = ""
+                mqtt_connection = reconnect_aws(mqtt_connection)
+
+                try:
+                    publish_to_aws(mqtt_connection, data)
+                    update_aws_status(row_id, "published")
+                    print("Published to AWS IoT Core after reconnect")
+                except Exception as e2:
+                    update_aws_status(row_id, "failed")
+                    print("Publish failed even after reconnect:", e2)
+
+            print("-----------------------------------")
 
         except KeyboardInterrupt:
             print("Stopped by user")
