@@ -7,15 +7,9 @@ from datetime import datetime
 from awscrt import mqtt
 from awsiot import mqtt_connection_builder
 
-# =========================
-# LoRa UART
-# =========================
 SERIAL_PORT = "/dev/serial0"
 BAUD_RATE = 9600
 
-# =========================
-# Paths
-# =========================
 BASE_DIR = "/home/pi_1234/data/src/pressure_project/VASP-Project"
 
 DB_DIR = os.path.join(BASE_DIR, "db", "HAMS_DB")
@@ -26,9 +20,6 @@ CA_PATH = os.path.join(CERT_DIR, "AmazonRootCA1.pem")
 CERT_PATH = os.path.join(CERT_DIR, "certificate.pem.crt")
 KEY_PATH = os.path.join(CERT_DIR, "private.pem.key")
 
-# =========================
-# AWS IoT Core
-# =========================
 AWS_ENDPOINT = "a1vddjuckiz90j-ats.iot.ap-south-1.amazonaws.com"
 CLIENT_ID = "HAMS_Data"
 TOPIC = "hams/device/data"
@@ -73,25 +64,46 @@ def parse_compact_packet(line):
         return None
 
     try:
-        data = {
+        device_id = parts[0]
+        device_time = parts[1] + " sec"
+        temperature = float(parts[2])
+        resistance = float(parts[5])
+        pt1000_voltage = float(parts[6])
+        temp_adc = int(parts[7])
+        battery_ads_voltage = float(parts[8])
+        battery_voltage = float(parts[9])
+        battery_adc = int(parts[10])
+
+        db_data = {
+            "device_id": device_id,
             "received_timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "device_id": parts[0],
-            "device_time": parts[1] + " sec",
-            "temperature": float(parts[2]),
+            "device_time": device_time,
+            "temperature": temperature,
             "status": parts[3],
             "temp_state": parts[4],
-            "resistance": float(parts[5]),
-            "pt1000_voltage": float(parts[6]),
-            "pt1000_adc": int(parts[7]),
-            "battery_ads_voltage": float(parts[8]),
-            "battery_voltage": float(parts[9]),
-            "battery_adc": int(parts[10]),
+            "resistance": resistance,
+            "pt1000_voltage": pt1000_voltage,
+            "pt1000_adc": temp_adc,
+            "battery_ads_voltage": battery_ads_voltage,
+            "battery_voltage": battery_voltage,
+            "battery_adc": battery_adc,
             "message": "LoRa data received successfully",
             "raw_data": line,
             "aws_publish_status": "pending"
         }
 
-        return data
+        aws_data = {
+            "ID": device_id,
+            "Time": device_time,
+            "Temperature": f"{temperature:.2f} C",
+            "Resistance": f"{resistance:.2f} Ohm",
+            "Battery Voltage": f"{battery_voltage:.2f} V",
+            "Temp_ADC_Value": temp_adc,
+            "Battery_ADC": battery_adc,
+            "Message": "LoRa data received successfully"
+        }
+
+        return db_data, aws_data
 
     except Exception as e:
         print("Packet parsing error:", e)
@@ -111,21 +123,21 @@ def save_to_db(data):
         message, raw_data, aws_publish_status
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
-        data.get("device_id"),
-        data.get("received_timestamp"),
-        data.get("device_time"),
-        data.get("temperature"),
-        data.get("status"),
-        data.get("temp_state"),
-        data.get("resistance"),
-        data.get("pt1000_voltage"),
-        data.get("pt1000_adc"),
-        data.get("battery_ads_voltage"),
-        data.get("battery_voltage"),
-        data.get("battery_adc"),
-        data.get("message"),
-        data.get("raw_data"),
-        data.get("aws_publish_status")
+        data["device_id"],
+        data["received_timestamp"],
+        data["device_time"],
+        data["temperature"],
+        data["status"],
+        data["temp_state"],
+        data["resistance"],
+        data["pt1000_voltage"],
+        data["pt1000_adc"],
+        data["battery_ads_voltage"],
+        data["battery_voltage"],
+        data["battery_adc"],
+        data["message"],
+        data["raw_data"],
+        data["aws_publish_status"]
     ))
 
     row_id = cur.lastrowid
@@ -163,7 +175,7 @@ def connect_aws():
 
         except Exception as e:
             print("AWS connection failed:", e)
-            print("Retrying AWS connection in 10 seconds...")
+            print("Retrying in 10 seconds...")
             time.sleep(10)
 
 
@@ -192,7 +204,6 @@ def publish_to_aws(mqtt_connection, data):
 
 def main():
     init_db()
-
     mqtt_connection = connect_aws()
 
     ser = serial.Serial(SERIAL_PORT, BAUD_RATE, timeout=2)
@@ -209,26 +220,29 @@ def main():
 
             print("RX:", line)
 
-            # Ignore sleep message
-            if "SLEEP" in line or "deep sleep" in line:
-                print("Sleep message received. Not saving to DB.")
+            if line.startswith("SLEEP"):
                 continue
 
-            # Parse received LoRa compact packet
-            data = parse_compact_packet(line)
+            if "ADS_ERROR" in line:
+                print("ADS1115 error received:", line)
+                continue
 
-            if data is None:
-                print("Invalid or incomplete packet. Not saved.")
+            parsed = parse_compact_packet(line)
+
+            if parsed is None:
+                print("Invalid packet. Not saved.")
                 print("-----------------------------------")
                 continue
 
-            row_id = save_to_db(data)
+            db_data, aws_data = parsed
+
+            row_id = save_to_db(db_data)
             print("Saved offline DB. Row ID:", row_id)
 
-            data["db_id"] = row_id
+            aws_data["db_id"] = row_id
 
             try:
-                publish_to_aws(mqtt_connection, data)
+                publish_to_aws(mqtt_connection, aws_data)
                 update_aws_status(row_id, "published")
                 print("Published to AWS IoT Core")
 
@@ -239,12 +253,12 @@ def main():
                 mqtt_connection = reconnect_aws(mqtt_connection)
 
                 try:
-                    publish_to_aws(mqtt_connection, data)
+                    publish_to_aws(mqtt_connection, aws_data)
                     update_aws_status(row_id, "published")
                     print("Published to AWS IoT Core after reconnect")
                 except Exception as e2:
                     update_aws_status(row_id, "failed")
-                    print("Publish failed even after reconnect:", e2)
+                    print("Publish failed after reconnect:", e2)
 
             print("-----------------------------------")
 
