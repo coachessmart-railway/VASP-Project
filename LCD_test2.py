@@ -12,22 +12,11 @@ lcd = CharLCD(
     pin_rs=26,
     pin_e=19,
     pins_data=[13, 6, 5, 11],
-    charmap='A00'
+    compat_mode=True
 )
 
 lcd.clear()
-
-lcd.cursor_pos = (0, 0)
-lcd.write_string("Good Morning")
-
-lcd.cursor_pos = (1, 0)
-lcd.write_string("Saniya")
-
-lcd.cursor_pos = (2, 0)
-lcd.write_string("HAMS Data")
-
-lcd.cursor_pos = (3, 0)
-lcd.write_string("LCD Test OK")
+lcd.write_string("HELLO SANIYA")
 
 while True:
     time.sleep(1)
