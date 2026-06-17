@@ -5,14 +5,15 @@ import time
 GPIO.setwarnings(False)
 GPIO.cleanup()
 
+time.sleep(1)
+
 lcd = CharLCD(
     numbering_mode=GPIO.BCM,
     cols=20,
     rows=4,
     pin_rs=26,
     pin_e=19,
-    pins_data=[13, 6, 5, 11],
-    compat_mode=True
+    pins_data=[13, 6, 5, 11]
 )
 
 lcd.clear()
