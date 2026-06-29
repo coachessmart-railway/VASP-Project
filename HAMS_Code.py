@@ -43,6 +43,8 @@ def init_db():
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         master_id TEXT,
         device_id TEXT,
+        generation_no INTEGER,
+        sequence_no INTEGER,
         received_timestamp TEXT,
         device_time TEXT,
         temperature REAL,
@@ -59,6 +61,17 @@ def init_db():
         aws_publish_status TEXT
     )
     """)
+
+    # Add columns if old database already exists
+    try:
+        cur.execute("ALTER TABLE hams_data ADD COLUMN generation_no INTEGER")
+    except sqlite3.OperationalError:
+        pass
+
+    try:
+        cur.execute("ALTER TABLE hams_data ADD COLUMN sequence_no INTEGER")
+    except sqlite3.OperationalError:
+        pass
 
     con.commit()
     con.close()
@@ -83,7 +96,7 @@ def get_master_id():
 def parse_compact_packet(line, master_id):
     parts = line.strip().split(",")
 
-    if len(parts) != 11:
+    if len(parts) != 13:
         print("Invalid packet length:", len(parts))
         return None
 
@@ -91,20 +104,24 @@ def parse_compact_packet(line, master_id):
         received_timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
         device_id = parts[0]
-        device_time = parts[1] + " sec"
-        temperature = float(parts[2])
-        status = parts[3]
-        temp_state = parts[4]
-        resistance = float(parts[5])
-        pt1000_voltage = float(parts[6])
-        pt1000_adc = int(parts[7])
-        battery_ads_voltage = float(parts[8])
-        battery_voltage = float(parts[9])
-        battery_adc = int(parts[10])
+        generation_no = int(parts[1])
+        sequence_no = int(parts[2])
+        device_time = parts[3] + " sec"
+        temperature = float(parts[4])
+        status = parts[5]
+        temp_state = parts[6]
+        resistance = float(parts[7])
+        pt1000_voltage = float(parts[8])
+        pt1000_adc = int(parts[9])
+        battery_ads_voltage = float(parts[10])
+        battery_voltage = float(parts[11])
+        battery_adc = int(parts[12])
 
         db_data = {
             "master_id": master_id if master_id else "NO_ID_GIVEN",
             "device_id": device_id,
+            "generation_no": generation_no,
+            "sequence_no": sequence_no,
             "received_timestamp": received_timestamp,
             "device_time": device_time,
             "temperature": temperature,
@@ -121,22 +138,10 @@ def parse_compact_packet(line, master_id):
             "aws_publish_status": "pending"
         }
 
-        aws_data = {
-            "master_id": master_id,
-            "device_id": device_id,
-            "received_timestamp": received_timestamp,
-            "device_time": device_time,
-            "temperature": temperature,
-            "status": status,
-            "temp_state": temp_state,
-            "resistance": resistance,
-            "pt1000_voltage": pt1000_voltage,
-            "pt1000_adc": pt1000_adc,
-            "battery_ads_voltage": battery_ads_voltage,
-            "battery_voltage": battery_voltage,
-            "battery_adc": battery_adc,
-            "message": "LoRa data received successfully"
-        }
+        aws_data = dict(db_data)
+        aws_data["master_id"] = master_id
+        aws_data.pop("raw_data")
+        aws_data.pop("aws_publish_status")
 
         return db_data, aws_data
 
@@ -151,15 +156,18 @@ def save_to_db(data):
 
     cur.execute("""
     INSERT INTO hams_data (
-        master_id, device_id, received_timestamp, device_time,
+        master_id, device_id, generation_no, sequence_no,
+        received_timestamp, device_time,
         temperature, status, temp_state,
         resistance, pt1000_voltage, pt1000_adc,
         battery_ads_voltage, battery_voltage, battery_adc,
         message, raw_data, aws_publish_status
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
         data["master_id"],
         data["device_id"],
+        data["generation_no"],
+        data["sequence_no"],
         data["received_timestamp"],
         data["device_time"],
         data["temperature"],
@@ -259,7 +267,6 @@ def publish_with_reconnect(mqtt_connection, aws_data, row_id):
             time.sleep(5)
 
             mqtt_connection = reconnect_aws(mqtt_connection)
-
             time.sleep(0.1)
 
 
@@ -297,6 +304,10 @@ def main():
                 print("ADS1115 error received:", line)
                 continue
 
+            if "ID_ERROR" in line:
+                print("Device ID error received:", line)
+                continue
+
             parsed = parse_compact_packet(line, master_id)
 
             if parsed is None:
@@ -305,6 +316,22 @@ def main():
                 continue
 
             db_data, aws_data = parsed
+
+            print("Parsed Data:")
+            print("Master ID      :", db_data["master_id"])
+            print("Device ID      :", db_data["device_id"])
+            print("Generation No  :", db_data["generation_no"])
+            print("Sequence No    :", db_data["sequence_no"])
+            print("Device Time    :", db_data["device_time"])
+            print("Temperature    :", db_data["temperature"])
+            print("Status         :", db_data["status"])
+            print("Temp State     :", db_data["temp_state"])
+            print("Resistance     :", db_data["resistance"])
+            print("PT1000 Voltage :", db_data["pt1000_voltage"])
+            print("PT1000 ADC     :", db_data["pt1000_adc"])
+            print("Battery ADS V  :", db_data["battery_ads_voltage"])
+            print("Battery V      :", db_data["battery_voltage"])
+            print("Battery ADC    :", db_data["battery_adc"])
 
             row_id = save_to_db(db_data)
             print("Saved offline DB. Row ID:", row_id)
