@@ -7,8 +7,7 @@ from datetime import datetime
 from awscrt import mqtt
 from awsiot import mqtt_connection_builder
 
-from RPLCD.gpio import CharLCD
-from RPi import GPIO
+from RPLCD.i2c import CharLCD
 
 SERIAL_PORT = "/dev/serial0"
 BAUD_RATE = 9600
@@ -27,14 +26,16 @@ AWS_ENDPOINT = "a1vddjuckiz90j-ats.iot.ap-south-1.amazonaws.com"
 CLIENT_ID = "HAMS_Data"
 TOPIC = "hams/device/data"
 
-# LCD GPIO pins
+# 20x4 I2C LCD
+# Common address: 0x27 or 0x3F
 lcd = CharLCD(
-    numbering_mode=GPIO.BCM,
+    i2c_expander="PCF8574",
+    address=0x27,
+    port=1,
     cols=20,
     rows=4,
-    pin_rs=26,
-    pin_e=19,
-    pins_data=[13, 6, 5, 11]
+    charmap="A00",
+    auto_linebreaks=True
 )
 
 
@@ -51,19 +52,21 @@ def lcd_print(line1="", line2="", line3="", line4=""):
 
 
 def display_lora_data(data):
+    # Screen 1
     lcd_print(
-        "LoRa Data Received",
-        f"Temp:{data['temperature']:.2f}C",
-        f"Status:{data['status']}",
-        f"Batt:{data['battery_voltage']:.2f}V"
+        f"Dev:{data['device_id']}",
+        f"M:{data['master_id']}"[:20],
+        f"T:{data['temperature']:.2f}C",
+        f"Status:{data['status']}"[:20]
     )
-    time.sleep(2)
+    time.sleep(3)
 
+    # Screen 2
     lcd_print(
         "Timestamp:",
         data["received_timestamp"][:20],
-        f"Slave:{data['device_id']}",
-        f"Master:{data['master_id']}"[:20]
+        f"Seq:{data['sequence_no']} Gen:{data['generation_no']}",
+        f"Batt:{data['battery_voltage']:.2f}V"
     )
 
 
@@ -85,6 +88,8 @@ def init_db():
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         master_id TEXT,
         device_id TEXT,
+        generation_no INTEGER,
+        sequence_no INTEGER,
         received_timestamp TEXT,
         device_time TEXT,
         temperature REAL,
@@ -105,8 +110,11 @@ def init_db():
     cur.execute("PRAGMA table_info(hams_data)")
     columns = [col[1] for col in cur.fetchall()]
 
-    if "master_id" not in columns:
-        cur.execute("ALTER TABLE hams_data ADD COLUMN master_id TEXT")
+    if "generation_no" not in columns:
+        cur.execute("ALTER TABLE hams_data ADD COLUMN generation_no INTEGER")
+
+    if "sequence_no" not in columns:
+        cur.execute("ALTER TABLE hams_data ADD COLUMN sequence_no INTEGER")
 
     con.commit()
     con.close()
@@ -115,10 +123,8 @@ def init_db():
 def get_master_id():
     con = sqlite3.connect(DB_FILE)
     cur = con.cursor()
-
     cur.execute("SELECT device_id FROM device_config WHERE id = 1")
     row = cur.fetchone()
-
     con.close()
 
     if row and row[0].strip():
@@ -131,60 +137,41 @@ def get_master_id():
 def parse_compact_packet(line, master_id):
     parts = line.strip().split(",")
 
-    if len(parts) != 11:
+    # New packet has 13 fields:
+    # ID, Gen, Seq, Time, Temp, Status, TempState, Resistance,
+    # PT1000_V, PT1000_ADC, BattADS_V, Batt_V, Batt_ADC
+    if len(parts) != 13:
         print("Invalid packet length:", len(parts))
         return None
 
     try:
         received_timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-        device_id = parts[0]
-        device_time = parts[1] + " sec"
-        temperature = float(parts[2])
-        status = parts[3]
-        temp_state = parts[4]
-        resistance = float(parts[5])
-        pt1000_voltage = float(parts[6])
-        pt1000_adc = int(parts[7])
-        battery_ads_voltage = float(parts[8])
-        battery_voltage = float(parts[9])
-        battery_adc = int(parts[10])
-
         db_data = {
             "master_id": master_id if master_id else "NO_ID_GIVEN",
-            "device_id": device_id,
+            "device_id": parts[0],
+            "generation_no": int(parts[1]),
+            "sequence_no": int(parts[2]),
             "received_timestamp": received_timestamp,
-            "device_time": device_time,
-            "temperature": temperature,
-            "status": status,
-            "temp_state": temp_state,
-            "resistance": resistance,
-            "pt1000_voltage": pt1000_voltage,
-            "pt1000_adc": pt1000_adc,
-            "battery_ads_voltage": battery_ads_voltage,
-            "battery_voltage": battery_voltage,
-            "battery_adc": battery_adc,
+            "device_time": parts[3] + " sec",
+            "temperature": float(parts[4]),
+            "status": parts[5],
+            "temp_state": parts[6],
+            "resistance": float(parts[7]),
+            "pt1000_voltage": float(parts[8]),
+            "pt1000_adc": int(parts[9]),
+            "battery_ads_voltage": float(parts[10]),
+            "battery_voltage": float(parts[11]),
+            "battery_adc": int(parts[12]),
             "message": "LoRa data received successfully",
             "raw_data": line,
             "aws_publish_status": "pending"
         }
 
-        aws_data = {
-            "master_id": master_id,
-            "device_id": device_id,
-            "received_timestamp": received_timestamp,
-            "device_time": device_time,
-            "temperature": temperature,
-            "status": status,
-            "temp_state": temp_state,
-            "resistance": resistance,
-            "pt1000_voltage": pt1000_voltage,
-            "pt1000_adc": pt1000_adc,
-            "battery_ads_voltage": battery_ads_voltage,
-            "battery_voltage": battery_voltage,
-            "battery_adc": battery_adc,
-            "message": "LoRa data received successfully"
-        }
+        aws_data = dict(db_data)
+        aws_data["master_id"] = master_id
+        aws_data.pop("raw_data")
+        aws_data.pop("aws_publish_status")
 
         return db_data, aws_data
 
@@ -199,15 +186,18 @@ def save_to_db(data):
 
     cur.execute("""
     INSERT INTO hams_data (
-        master_id, device_id, received_timestamp, device_time,
+        master_id, device_id, generation_no, sequence_no,
+        received_timestamp, device_time,
         temperature, status, temp_state,
         resistance, pt1000_voltage, pt1000_adc,
         battery_ads_voltage, battery_voltage, battery_adc,
         message, raw_data, aws_publish_status
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
         data["master_id"],
         data["device_id"],
+        data["generation_no"],
+        data["sequence_no"],
         data["received_timestamp"],
         data["device_time"],
         data["temperature"],
@@ -233,13 +223,7 @@ def save_to_db(data):
 def update_aws_status(row_id, status):
     con = sqlite3.connect(DB_FILE)
     cur = con.cursor()
-
-    cur.execute("""
-    UPDATE hams_data
-    SET aws_publish_status = ?
-    WHERE id = ?
-    """, (status, row_id))
-
+    cur.execute("UPDATE hams_data SET aws_publish_status = ? WHERE id = ?", (status, row_id))
     con.commit()
     con.close()
 
@@ -248,6 +232,7 @@ def connect_aws():
     while True:
         try:
             print("Connecting to AWS IoT Core...")
+            lcd_print("AWS Connecting...", "", "", "")
 
             mqtt_connection = mqtt_connection_builder.mtls_from_path(
                 endpoint=AWS_ENDPOINT,
@@ -261,11 +246,12 @@ def connect_aws():
 
             mqtt_connection.connect().result()
             print("Connected to AWS IoT Core")
+            lcd_print("AWS Connected", "Waiting LoRa Data", "", "")
             return mqtt_connection
 
         except Exception as e:
             print("AWS connection failed:", e)
-            print("Reconnect after 5 seconds...")
+            lcd_print("AWS Failed", str(e)[:20], "Retry 5 sec", "")
             time.sleep(5)
 
 
@@ -297,17 +283,15 @@ def publish_with_reconnect(mqtt_connection, aws_data, row_id):
             publish_to_aws(mqtt_connection, aws_data)
             update_aws_status(row_id, "published")
             print("Published to AWS IoT Core")
+            lcd_print("AWS Published", f"Dev:{aws_data['device_id']}", "Saved DB", "")
             return mqtt_connection
 
         except Exception as e:
-            print("AWS disconnected / publish failed:", e)
+            print("AWS publish failed:", e)
             update_aws_status(row_id, "failed")
-
-            print("Reconnect after 5 seconds...")
+            lcd_print("AWS Publish Fail", "Reconnecting...", "", "")
             time.sleep(5)
-
             mqtt_connection = reconnect_aws(mqtt_connection)
-            time.sleep(0.1)
 
 
 def main():
@@ -317,18 +301,19 @@ def main():
 
     if master_id:
         print(f'Master ID = "{master_id}"')
-        lcd_print("HAMS Receiver", f"Master:{master_id}"[:20], "AWS Connecting...", "")
+        lcd_print("HAMS Receiver", f"M:{master_id}"[:20], "Starting...", "")
         mqtt_connection = connect_aws()
-        lcd_print("HAMS Receiver", "AWS Connected", "Waiting LoRa Data", "")
     else:
-        print("No ID given. Data will be received and saved, but not published to AWS.")
-        lcd_print("No Master ID", "AWS Publish Stop", "Waiting LoRa Data", "")
+        print("No ID given. Data will be saved but not published.")
+        lcd_print("No Master ID", "AWS Publish Stop", "Waiting LoRa", "")
         mqtt_connection = None
 
     ser = serial.Serial(SERIAL_PORT, BAUD_RATE, timeout=0.1)
 
     print("HAMS Raspberry Pi Master Receiver Started")
     print("Waiting for LoRa data...")
+
+    lcd_print("HAMS Receiver", f"M:{master_id}"[:20], "Waiting LoRa Data", "")
 
     while True:
         try:
@@ -349,6 +334,11 @@ def main():
                 lcd_print("ADS1115 Error", line[:20], "", "")
                 continue
 
+            if "ID_ERROR" in line:
+                print("Device ID error received:", line)
+                lcd_print("ID Error", line[:20], "", "")
+                continue
+
             parsed = parse_compact_packet(line, master_id)
 
             if parsed is None:
@@ -359,6 +349,15 @@ def main():
 
             db_data, aws_data = parsed
 
+            print("Parsed Data:")
+            print("Master ID      :", db_data["master_id"])
+            print("Device ID      :", db_data["device_id"])
+            print("Generation No  :", db_data["generation_no"])
+            print("Sequence No    :", db_data["sequence_no"])
+            print("Timestamp      :", db_data["received_timestamp"])
+            print("Temperature    :", db_data["temperature"])
+            print("Status         :", db_data["status"])
+
             display_lora_data(db_data)
 
             row_id = save_to_db(db_data)
@@ -366,7 +365,6 @@ def main():
 
             if master_id is None:
                 update_aws_status(row_id, "not_published_no_master_id")
-                print("No ID given. AWS publish skipped.")
                 lcd_print("Saved Offline", "No Master ID", "AWS Skipped", "")
                 print("-----------------------------------")
                 continue
@@ -399,8 +397,6 @@ def main():
             print("AWS MQTT disconnected safely")
     except Exception:
         pass
-
-    GPIO.cleanup()
 
 
 if __name__ == "__main__":
