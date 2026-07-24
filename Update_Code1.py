@@ -7,49 +7,79 @@ import busio
 import adafruit_ads1x15.ads1115 as ADS
 from adafruit_ads1x15.analog_in import AnalogIn
 
-# -----------------------------------
-# Initialize I2C
-# -----------------------------------
+
+# -------------------------------
+# I2C Initialization
+# -------------------------------
+
 i2c = busio.I2C(board.SCL, board.SDA)
 
-# -----------------------------------
-# ADS1115 #1 (0x48)
-# -----------------------------------
-ads1 = ADS.ADS1115(i2c, address=0x48)
+
+# -------------------------------
+# ADS1115-1 Address 0x48
+# BP FP CR BC
+# -------------------------------
+
+ads1 = ADS.ADS1115(
+    i2c,
+    address=0x48
+)
+
 ads1.gain = 1
 
-bp = AnalogIn(ads1, ADS.P0)
-fp = AnalogIn(ads1, ADS.P1)
-cr = AnalogIn(ads1, ADS.P2)
-bc = AnalogIn(ads1, ADS.P3)
 
-# -----------------------------------
-# ADS1115 #2 (0x49)
-# -----------------------------------
-ads2 = ADS.ADS1115(i2c, address=0x49)
+BP = AnalogIn(ads1, 0)
+FP = AnalogIn(ads1, 1)
+CR = AnalogIn(ads1, 2)
+BC = AnalogIn(ads1, 3)
+
+
+# -------------------------------
+# ADS1115-2 Address 0x49
+# MR Battery
+# -------------------------------
+
+ads2 = ADS.ADS1115(
+    i2c,
+    address=0x49
+)
+
 ads2.gain = 1
 
-battery = AnalogIn(ads2, ADS.P2)
-mr = AnalogIn(ads2, ADS.P3)
 
-print("==============================================")
-print("      ADS1115 RAW VALUE TEST")
-print("==============================================")
+Battery = AnalogIn(ads2, 2)
+MR = AnalogIn(ads2, 3)
+
+
+
+print("--------------------------------")
+print(" ADS1115 RAW VALUE TEST")
+print("--------------------------------")
+
 
 while True:
 
-    print("\n--------------------------------------------")
-    print(time.strftime("%Y-%m-%d %H:%M:%S"))
-    print("--------------------------------------------")
+    print("\nTime :", time.strftime("%Y-%m-%d %H:%M:%S"))
 
-    print(f"BP Raw       : {bp.value}")
-    print(f"FP Raw       : {fp.value}")
-    print(f"CR Raw       : {cr.value}")
-    print(f"BC Raw       : {bc.value}")
+    print("--------------------------------")
 
-    print("--------------------------------------------")
+    print("ADS1115-1 (0x48)")
 
-    print(f"MR Raw       : {mr.value}")
-    print(f"Battery Raw  : {battery.value}")
+    print("BP Raw :", BP.value)
+    print("FP Raw :", FP.value)
+    print("CR Raw :", CR.value)
+    print("BC Raw :", BC.value)
+
+
+    print("--------------------------------")
+
+    print("ADS1115-2 (0x49)")
+
+    print("MR Raw      :", MR.value)
+    print("Battery Raw :", Battery.value)
+
+
+    print("--------------------------------")
+
 
     time.sleep(1)
