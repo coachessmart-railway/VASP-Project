@@ -530,7 +530,7 @@ def check_raw_change(data):
 
     ]
 
-    print("RAW Difference :", diff)
+    #print("RAW Difference :", diff)
 
     if any(
 
