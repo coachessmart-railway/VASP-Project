@@ -2,33 +2,50 @@
 
 import time
 import os
-import serial
 import sqlite3
+import serial
+import pynmea2
 
 
 # ================= CONFIG =================
 
-READ_INTERVAL = 1
+DEVICE_ID = "Raspberry4_8"
 
 RAW_THRESHOLD = 348
+
+READ_INTERVAL = 1
+
+
+# ADS1115 ADDRESS
 
 ADS1_ADDRESS = 0x48
 ADS2_ADDRESS = 0x49
 
-GPS_PORT = "/dev/ttyAMA3"
-GPS_BAUD = 38400
+
+# LCD
 
 LCD_ADDRESS = 0x27
 
 
+# GPS
+
+GPS_PORT = "/dev/ttyAMA3"
+GPS_BAUD = 38400
+
+
+
 # ================= DATABASE =================
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+BASE_DIR = os.path.dirname(
+    os.path.abspath(__file__)
+)
+
 
 DB_PATH = os.path.join(
     BASE_DIR,
     "db",
-    "hams_data.db"
+    "test_db.db"
 )
 
 
@@ -43,13 +60,18 @@ conn = sqlite3.connect(
     check_same_thread=False
 )
 
+
 cursor = conn.cursor()
+
 
 
 cursor.execute("""
 CREATE TABLE IF NOT EXISTS brake_pressure_log
 (
+
 id INTEGER PRIMARY KEY AUTOINCREMENT,
+
+device_id TEXT,
 
 BP_raw INTEGER,
 FP_raw INTEGER,
@@ -57,11 +79,23 @@ CR_raw INTEGER,
 BC_raw INTEGER,
 
 MR_raw INTEGER,
+
 Battery_raw INTEGER,
 
-GPS TEXT,
 
-timestamp DATETIME,
+GPS_status TEXT,
+
+SAT INTEGER,
+
+LAT REAL,
+
+LONG REAL,
+
+ALT REAL,
+
+
+timestamp TEXT,
+
 
 uploaded INTEGER DEFAULT 0
 
@@ -75,7 +109,9 @@ conn.commit()
 
 # ================= ADS1115 =================
 
-ADS_AVAILABLE = True
+
+ADS048_STATUS = "Disconnected"
+ADS049_STATUS = "Disconnected"
 
 
 try:
@@ -94,61 +130,75 @@ try:
     )
 
 
-    ads1 = ADS.ADS1115(
+    ads048 = ADS.ADS1115(
         i2c,
         address=ADS1_ADDRESS
     )
 
 
-    ads2 = ADS.ADS1115(
+    ads049 = ADS.ADS1115(
         i2c,
         address=ADS2_ADDRESS
     )
 
 
-    ads1.gain = 1
-    ads2.gain = 1
+    ads048.gain = 1
+    ads049.gain = 1
 
+
+
+    # ADS1115 0x48
 
     BP = AnalogIn(
-        ads1,
-        ADS.P0
+        ads048,
+        0
     )
 
     FP = AnalogIn(
-        ads1,
-        ADS.P1
+        ads048,
+        1
     )
 
     CR = AnalogIn(
-        ads1,
-        ADS.P2
+        ads048,
+        2
     )
 
     BC = AnalogIn(
-        ads1,
-        ADS.P3
+        ads048,
+        3
     )
 
 
+    ADS048_STATUS = "Connected"
+
+
+
+    # ADS1115 0x49
+
     MR = AnalogIn(
-        ads2,
-        ADS.P0
+        ads049,
+        0
     )
 
 
     BATTERY = AnalogIn(
-        ads2,
-        ADS.P1
+        ads049,
+        1
     )
 
 
-    print("ADS1115 Connected")
+    ADS049_STATUS = "Connected"
+
+
+
+    print(
+        "✅ ADS1115 sensor detected and initialized."
+    )
+
 
 
 except Exception as e:
-
-    ADS_AVAILABLE = False
 
     print(
         "ADS1115 Error:",
@@ -157,11 +207,10 @@ except Exception as e:
 
 
 
-
 # ================= LCD =================
 
 
-LCD_AVAILABLE = True
+LCD_STATUS = "Disconnected"
 
 
 try:
@@ -179,12 +228,18 @@ try:
 
     lcd.clear()
 
-    print("LCD Connected")
+
+    LCD_STATUS = "Connected"
+
+
+    print(
+        "LCD Connected"
+    )
 
 
 except Exception as e:
 
-    LCD_AVAILABLE = False
+    lcd = None
 
     print(
         "LCD Error:",
@@ -193,11 +248,10 @@ except Exception as e:
 
 
 
-
 # ================= GPS =================
 
 
-GPS_AVAILABLE = True
+GPS_STATUS = "Disconnected"
 
 
 try:
@@ -209,12 +263,17 @@ try:
     )
 
 
-    print("GPS Connected")
+    GPS_STATUS = "Connected"
+
+
+    print(
+        "GPS Connected"
+    )
 
 
 except Exception as e:
 
-    GPS_AVAILABLE = False
+    gps = None
 
     print(
         "GPS Error:",
@@ -227,11 +286,10 @@ except Exception as e:
 # ================= FUNCTIONS =================
 
 
-def read_ads1115():
+def read_adc():
 
 
-    if ADS_AVAILABLE:
-
+    try:
 
         return (
 
@@ -250,16 +308,18 @@ def read_ads1115():
         )
 
 
-    return (
+    except:
 
-        0,
-        0,
-        0,
-        0,
-        0,
-        0
+        return (
 
-    )
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+
+        )
 
 
 
@@ -268,73 +328,141 @@ def read_ads1115():
 def read_gps():
 
 
-    if GPS_AVAILABLE:
+    data = {
 
-        try:
+        "status":"NO FIX",
 
-            data = gps.readline()
+        "sat":0,
 
-            return data.decode(
+        "lat":0,
+
+        "long":0,
+
+        "alt":0
+
+    }
+
+
+
+    if gps is None:
+
+        return data
+
+
+
+    try:
+
+
+        while gps.in_waiting:
+
+
+            line = gps.readline().decode(
                 errors="ignore"
-            ).strip()
+            )
 
 
-        except:
-
-            return "GPS ERROR"
+            if line.startswith("$GNGGA"):
 
 
-    return "GPS NOT CONNECTED"
+                msg = pynmea2.parse(
+                    line
+                )
+
+
+                data["status"] = "OK"
+
+
+                data["sat"] = int(
+                    msg.num_sats
+                )
+
+
+                data["lat"] = msg.latitude
+
+
+                data["long"] = msg.longitude
+
+
+                data["alt"] = float(
+                    msg.altitude
+                )
+
+
+                break
+
+
+
+    except:
+
+        pass
+
+
+
+    return data
 
 
 
 
 
-def lcd_print(values):
+def lcd_display(values,gps_data):
 
 
-    if LCD_AVAILABLE:
+    if lcd is None:
+
+        return
+
+
+
+    pages = [
+
+        [
+        f"BP:{values[0]} FP:{values[1]}",
+        f"CR:{values[2]} BC:{values[3]}",
+        "RAW PRESSURE",
+        DEVICE_ID
+        ],
+
+
+        [
+        f"MR:{values[4]}",
+        f"BAT:{values[5]}",
+        f"SAT:{gps_data['sat']}",
+        "GPS OK"
+        ],
+
+
+        [
+        f"LAT:{gps_data['lat']}",
+        f"LON:{gps_data['long']}",
+        f"ALT:{gps_data['alt']}",
+        "GPS DATA"
+        ]
+
+    ]
+
+
+
+    for page in pages:
 
 
         lcd.clear()
 
 
-        lcd.write_string(
-
-            f"BP:{values[0]} FP:{values[1]}"
-
-        )
+        for row,text in enumerate(page):
 
 
-        lcd.cursor_pos=(1,0)
+            lcd.cursor_pos = (
+                row,
+                0
+            )
 
 
-        lcd.write_string(
-
-            f"CR:{values[2]} BC:{values[3]}"
-
-        )
+            lcd.write_string(
+                str(text)[:20]
+            )
 
 
-        lcd.cursor_pos=(2,0)
-
-
-        lcd.write_string(
-
-            f"MR:{values[4]} BAT:{values[5]}"
-
-        )
-
-
-        lcd.cursor_pos=(3,0)
-
-
-        lcd.write_string(
-
-            "RAW DATA"
-
-        )
-
+        time.sleep(2)
 
 
 
@@ -342,7 +470,10 @@ def lcd_print(values):
 # ================= MAIN =================
 
 
-print("\nHAMS RAW CAPTURE STARTED\n")
+print()
+print("🚀 Capture system started...")
+print()
+
 
 
 last_raw = None
@@ -352,7 +483,8 @@ last_raw = None
 while True:
 
 
-    current_raw = read_ads1115()
+
+    adc = read_adc()
 
 
     gps_data = read_gps()
@@ -367,95 +499,110 @@ while True:
     print("--------------------------------")
 
     print(
-        "Time:",
+        "device_id =",
+        DEVICE_ID
+    )
+
+
+    print(
+        "BP_raw =",
+        adc[0],
+        "FP_raw =",
+        adc[1],
+        "CR_raw =",
+        adc[2],
+        "BC_raw =",
+        adc[3]
+    )
+
+
+    print(
+        "MR_raw =",
+        adc[4],
+        "Battery_raw =",
+        adc[5]
+    )
+
+
+    print(
+        "GPS_connection =",
+        gps_data["status"]
+    )
+
+
+    print(
+        "SAT =",
+        gps_data["sat"]
+    )
+
+
+    print(
+        "LAT =",
+        gps_data["lat"]
+    )
+
+
+    print(
+        "LONG =",
+        gps_data["long"]
+    )
+
+
+    print(
+        "ALT =",
+        gps_data["alt"]
+    )
+
+
+    print(
+        "timestamp =",
         timestamp
     )
 
 
     print(
-        "ADS1115-1 (0x48)"
+        "ADS1115_status =",
+        ADS048_STATUS
     )
 
 
     print(
-        "BP Raw:",
-        current_raw[0]
-    )
-
-    print(
-        "FP Raw:",
-        current_raw[1]
-    )
-
-    print(
-        "CR Raw:",
-        current_raw[2]
-    )
-
-    print(
-        "BC Raw:",
-        current_raw[3]
+        "ADS_049_status =",
+        ADS049_STATUS
     )
 
 
-    print("----------------")
 
+    # LCD
 
-    print(
-        "ADS1115-2 (0x49)"
-    )
-
-
-    print(
-        "MR Raw:",
-        current_raw[4]
-    )
-
-
-    print(
-        "Battery Raw:",
-        current_raw[5]
-    )
-
-
-    print(
-        "GPS:",
+    lcd_display(
+        adc,
         gps_data
     )
 
 
-    print("--------------------------------")
+
+    # ============== CHANGE LOGIC ==============
 
 
-
-    lcd_print(
-        current_raw
-    )
-
-
-
-    # ========= CHANGE CHECK =========
-
-
-    store_data = False
+    save = False
 
 
 
     if last_raw is None:
 
-        store_data = True
+
+        save = True
 
 
 
     else:
 
 
-        pressure_diff = [
+        difference = [
 
             abs(
-                current_raw[i]
-                -
-                last_raw[i]
+                adc[i]-last_raw[i]
             )
 
             for i in range(4)
@@ -464,22 +611,19 @@ while True:
 
 
         if any(
-
-            diff >= RAW_THRESHOLD
-
-            for diff in pressure_diff
-
+            x >= RAW_THRESHOLD
+            for x in difference
         ):
 
-            store_data = True
+            save = True
 
 
 
 
-    # ========= DATABASE INSERT =========
+    # ============== DATABASE INSERT ==============
 
 
-    if store_data:
+    if save:
 
 
         cursor.execute("""
@@ -487,34 +631,61 @@ while True:
         INSERT INTO brake_pressure_log
 
         (
+
+        device_id,
+
         BP_raw,
         FP_raw,
         CR_raw,
         BC_raw,
 
         MR_raw,
+
         Battery_raw,
 
-        GPS,
-        timestamp
+        GPS_status,
+
+        SAT,
+
+        LAT,
+
+        LONG,
+
+        ALT,
+
+        timestamp,
+
+        uploaded
 
         )
 
-        VALUES(?,?,?,?,?,?,?,?)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,0)
 
         """,
 
         (
 
-        current_raw[0],
-        current_raw[1],
-        current_raw[2],
-        current_raw[3],
+        DEVICE_ID,
 
-        current_raw[4],
-        current_raw[5],
+        adc[0],
+        adc[1],
+        adc[2],
+        adc[3],
 
-        gps_data,
+        adc[4],
+
+        adc[5],
+
+        gps_data["status"],
+
+        gps_data["sat"],
+
+        gps_data["lat"],
+
+        gps_data["long"],
+
+        gps_data["alt"],
+
         timestamp
 
         ))
@@ -525,12 +696,13 @@ while True:
 
 
 
-        last_raw = current_raw
+        last_raw = adc
 
 
 
         print(
-            "✅ Stored in DB"
+            "✅ Data inserted into DB at",
+            timestamp
         )
 
 
@@ -539,9 +711,12 @@ while True:
 
 
         print(
-            "⏭ No change >348"
+            "⏭ No significant change >348"
         )
 
+
+
+    print("--------------------------------")
 
 
     time.sleep(
