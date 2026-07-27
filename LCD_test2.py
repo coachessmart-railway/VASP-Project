@@ -1,26 +1,22 @@
-from RPLCD.gpio import CharLCD
-from RPi import GPIO
+from RPLCD.i2c import CharLCD
 import time
 
-GPIO.setwarnings(False)
-GPIO.cleanup()
+try:
+    lcd = CharLCD(
+        i2c_expander='PCF8574',
+        address=0x27,
+        port=1,
+        cols=20,
+        rows=4,
+        auto_linebreaks=False,
+        charmap='A00'
+    )
 
-print("Starting LCD Test...")
+    lcd.clear()
+    lcd.write_string("Hello Saniya!")
+    print("LCD OK")
 
-lcd = CharLCD(
-    numbering_mode=GPIO.BCM,
-    pin_rs=26,
-    pin_e=19,
-    pins_data=[13, 6, 5, 11],
-    cols=20,
-    rows=4
-)
+    time.sleep(10)
 
-lcd.clear()
-
-lcd.write_string("HELLO")
-
-print("HELLO sent to LCD")
-
-while True:
-    time.sleep(1)
+except Exception as e:
+    print("Error:", e)
