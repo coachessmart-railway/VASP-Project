@@ -132,13 +132,22 @@ print(
 # ADS1115 SETUP
 # =====================================================
 
+# =====================================================
+# ADS1115 SETUP
+# =====================================================
+
 
 ADS048_STATUS = "Disconnected"
 ADS049_STATUS = "Disconnected"
 
 
-BP = FP = CR = BC = None
-MR = BAT = None
+BP = None
+FP = None
+CR = None
+BC = None
+
+MR = None
+BAT = None
 
 
 
@@ -153,11 +162,114 @@ try:
 
 
 
+    # Raspberry Pi I2C
+
     i2c = busio.I2C(
         board.SCL,
         board.SDA
     )
 
+
+
+    # =================================================
+    # ADS1115 ADDRESS 0x48
+    # =================================================
+
+
+    ads1 = ADS.ADS1115(
+        i2c,
+        address=0x48
+    )
+
+
+    ads1.gain = 1
+
+
+
+    BP = AnalogIn(
+        ads1,
+        0
+    )
+
+
+    FP = AnalogIn(
+        ads1,
+        1
+    )
+
+
+    CR = AnalogIn(
+        ads1,
+        2
+    )
+
+
+    BC = AnalogIn(
+        ads1,
+        3
+    )
+
+
+
+    ADS048_STATUS = "Connected"
+
+
+
+    # =================================================
+    # ADS1115 ADDRESS 0x49
+    # =================================================
+
+
+    ads2 = ADS.ADS1115(
+        i2c,
+        address=0x49
+    )
+
+
+    ads2.gain = 1
+
+
+
+    MR = AnalogIn(
+        ads2,
+        0
+    )
+
+
+    BAT = AnalogIn(
+        ads2,
+        1
+    )
+
+
+
+    ADS049_STATUS = "Connected"
+
+
+
+    print(
+        "✅ ADS1115 0x48 Connected"
+    )
+
+
+    print(
+        "✅ ADS1115 0x49 Connected"
+    )
+
+
+
+except Exception as e:
+
+
+    print(
+        "ADS1115 Error:",
+        e
+    )
+
+
+    ADS048_STATUS="Disconnected"
+
+    ADS049_STATUS="Disconnected"
 
 
     # ---------------- ADS1115 0x48 ----------------
