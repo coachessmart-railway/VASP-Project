@@ -9,13 +9,12 @@ import time
 
 SHUNT_RESISTOR = 160.0
 
-ADC_RANGE = 4.096
+ADC_MAX = 32767
 
-MAX_ADC = 32767
+ADC_VOLTAGE = 4.096
 
 
-# 4-20mA pressure sensor
-PRESSURE_RANGE_BAR = 10.0
+PRESSURE_RANGE = 10.0
 
 
 
@@ -40,41 +39,41 @@ try:
     )
 
 
-
-    ads1 = ADS.ADS1115(
+    ads = ADS.ADS1115(
         i2c,
         address=0x48
     )
 
 
-    ads1.gain = 1
+    ads.gain = 1
 
 
 
     BP = AnalogIn(
-        ads1,
+        ads,
         0
     )
 
     FP = AnalogIn(
-        ads1,
+        ads,
         1
     )
 
     CR = AnalogIn(
-        ads1,
+        ads,
         2
     )
 
     BC = AnalogIn(
-        ads1,
+        ads,
         3
     )
 
 
 
-    print("✅ ADS1115 0x48 Connected")
-
+    print(
+        "✅ ADS1115 0x48 Connected"
+    )
 
 
 except Exception as e:
@@ -88,40 +87,38 @@ except Exception as e:
 
 
 
+
 # =====================================================
-# CONVERSION FUNCTION
+# COMMON CONVERSION FUNCTION
 # =====================================================
 
 
-def calculate_pressure(raw):
+def convert_pressure(raw_value):
 
 
-    # Raw to voltage
+    # Raw ADC to voltage
 
     voltage = (
 
-        raw / MAX_ADC
+        raw_value /
 
-    ) * ADC_RANGE
+        ADC_MAX
+
+    ) * ADC_VOLTAGE
+
 
 
 
     # Voltage to current
 
-    current_A = (
+    current = (
 
         voltage /
 
         SHUNT_RESISTOR
 
-    )
+    ) * 1000
 
-
-    current_mA = (
-
-        current_A * 1000
-
-    )
 
 
 
@@ -129,13 +126,14 @@ def calculate_pressure(raw):
 
     pressure = (
 
-        (current_mA - 4)
+        (current - 4)
 
         /
 
         16
 
-    ) * PRESSURE_RANGE_BAR
+    ) * PRESSURE_RANGE
+
 
 
 
@@ -149,11 +147,65 @@ def calculate_pressure(raw):
 
         round(voltage,3),
 
-        round(current_mA,2),
+        round(current,2),
 
         round(pressure,2)
 
     )
+
+
+
+
+
+# =====================================================
+# SENSOR PRINT FUNCTION
+# =====================================================
+
+
+def print_sensor(
+        name,
+        raw_value
+):
+
+
+    voltage,current,pressure = convert_pressure(
+        raw_value
+    )
+
+
+    print(
+        name,
+        "Raw =",
+        raw_value
+    )
+
+
+    print(
+        name,
+        "Voltage =",
+        voltage,
+        "V"
+    )
+
+
+    print(
+        name,
+        "Current =",
+        current,
+        "mA"
+    )
+
+
+    print(
+        name,
+        "Pressure =",
+        pressure,
+        "bar"
+    )
+
+
+    print()
+
 
 
 
@@ -163,7 +215,9 @@ def calculate_pressure(raw):
 # =====================================================
 
 
-print("\n🚀 ADS1115 Pressure Test Started\n")
+print(
+    "\n🚀 Pressure Conversion Started\n"
+)
 
 
 
@@ -184,60 +238,28 @@ while True:
 
 
 
-    print(
-        "BP Raw =",
+    print_sensor(
+        "BP",
         BP_raw
     )
 
 
-    v,i,p = calculate_pressure(
-        BP_raw
-    )
-
-
-    print(
-        "BP Voltage =",
-        v,
-        "V"
-    )
-
-
-    print(
-        "BP Current =",
-        i,
-        "mA"
-    )
-
-
-    print(
-        "BP Pressure =",
-        p,
-        "bar"
-    )
-
-
-
-    print()
-
-
-
-    print(
-        "FP Raw =",
+    print_sensor(
+        "FP",
         FP_raw
     )
 
 
-    print(
-        "CR Raw =",
+    print_sensor(
+        "CR",
         CR_raw
     )
 
 
-    print(
-        "BC Raw =",
+    print_sensor(
+        "BC",
         BC_raw
     )
-
 
 
     print("--------------------------------\n")
