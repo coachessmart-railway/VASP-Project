@@ -6,21 +6,20 @@ import pynmea2
 
 from RPLCD.i2c import CharLCD
 
-
-# ---------------- LCD I2C-6 ----------------
+# ---------------- LCD I2C ----------------
 
 lcd = CharLCD(
     i2c_expander='PCF8574',
-    address=0x27,       # Change to 0x3F if required
-    port=6,
+    address=0x27,
+    port=1,                  # Correct I2C bus
     cols=20,
     rows=4,
-    charmap='A00'
+    charmap='A00',
+    auto_linebreaks=False
 )
 
 
 def lcd_show(line1, line2, line3, line4):
-
     lcd.clear()
 
     lcd.cursor_pos = (0, 0)
@@ -36,15 +35,14 @@ def lcd_show(line1, line2, line3, line4):
     lcd.write_string(line4[:20])
 
 
-# ---------------- GPS UART ----------------
+# ---------------- GPS UART3 ----------------
 
 GPS_PORT = "/dev/ttyAMA3"
 GPS_BAUD = 38400
 
-
 gps = serial.Serial(
-    GPS_PORT,
-    GPS_BAUD,
+    port=GPS_PORT,
+    baudrate=GPS_BAUD,
     timeout=1
 )
 
@@ -58,116 +56,42 @@ lcd_show(
     "Waiting Data"
 )
 
-print("GPS Started")
-time.sleep(3)
-
-
-# ---------------- MAIN LOOP ----------------
+print("GPS Started...")
 
 while True:
-
     try:
+        line = gps.readline().decode("ascii", errors="ignore").strip()
 
-        data = gps.readline().decode(
-            "ascii",
-            errors="ignore"
-        ).strip()
+        if line.startswith("$GNGGA") or line.startswith("$GPGGA"):
+            msg = pynmea2.parse(line)
 
+            latitude = msg.latitude
+            longitude = msg.longitude
+            altitude = msg.altitude
+            satellites = msg.num_sats
 
-        if not data.startswith("$"):
-            continue
+            print("--------------------------------")
+            print("Latitude  :", latitude)
+            print("Longitude :", longitude)
+            print("Altitude  :", altitude, "m")
+            print("Satellites:", satellites)
+            print("--------------------------------")
 
+            lcd_show(
+                f"SAT:{satellites}",
+                f"LAT:{latitude:.5f}",
+                f"LON:{longitude:.5f}",
+                f"ALT:{altitude}m"
+            )
 
-        try:
-            msg = pynmea2.parse(data)
-
-        except:
-            continue
-
-
-        # GGA gives location
-
-        if msg.sentence_type == "GGA":
-
-            fix = int(msg.gps_qual or 0)
-            satellites = int(msg.num_sats or 0)
-
-
-            if fix == 0:
-
-                print(
-                    f"Waiting GPS Fix | Satellites: {satellites}"
-                )
-
-                lcd_show(
-                    "HAMS BB GPS",
-                    "Waiting For Fix",
-                    f"SAT:{satellites}",
-                    "Searching..."
-                )
-
-
-            else:
-
-                latitude = msg.latitude
-                longitude = msg.longitude
-                altitude = msg.altitude
-
-
-                # Terminal Output
-
-                print("--------------------------------")
-                print("GPS FIX OK")
-                print("Latitude :", latitude)
-                print("Longitude:", longitude)
-                print("Altitude :", altitude, "m")
-                print("Satellites:", satellites)
-
-                print(
-                    "Map:",
-                    f"https://maps.google.com/?q={latitude},{longitude}"
-                )
-
-                print("--------------------------------")
-
-
-                # LCD Output
-
-                lcd_show(
-                    "HAMS BB GPS",
-                    f"SAT:{satellites} ALT:{altitude}m",
-                    f"LAT:{latitude:.6f}",
-                    f"LON:{longitude:.6f}"
-                )
-
-
-        # RMC gives speed
-
-        elif msg.sentence_type == "RMC":
-
-            if msg.status == "A":
-
-                speed = float(
-                    msg.spd_over_grnd or 0
-                ) * 1.852
-
-                print(
-                    f"Speed: {speed:.2f} km/h"
-                )
-
-
-        time.sleep(0.2)
-
+    except pynmea2.ParseError:
+        pass
 
     except KeyboardInterrupt:
-
-        print("GPS stopped")
         lcd.clear()
-        gps.close()
+        print("Program Stopped")
         break
 
-
     except Exception as e:
-
         print("Error:", e)
         time.sleep(1)
