@@ -539,10 +539,10 @@ def check_raw_change(data):
 
 
 
-    print(
-        "RAW Difference =",
-        diff
-    )
+    #print(
+        #"RAW Difference =",
+        #diff
+    #)
 
 
 
@@ -570,7 +570,7 @@ def check_raw_change(data):
 
 
 print(
-    "\n🚀 HAMS ADS1115 Capture Started\n"
+    "\n🚀 BRAKE BINDIND ADS1115 Capture Started\n"
 )
 
 
