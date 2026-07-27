@@ -173,12 +173,14 @@ def read_sensor():
 
 def read_gps():
 
-    gps_data={
+    gps_data = {
+
         "status":"NO FIX",
         "sat":0,
         "lat":0,
         "long":0,
         "alt":0
+
     }
 
 
@@ -188,31 +190,45 @@ def read_gps():
 
     try:
 
-        line = gps.readline().decode(
-            errors="ignore"
-        )
+        for i in range(10):
+
+            line = gps.readline().decode(
+                errors="ignore"
+            )
 
 
-        if "$GNGGA" in line:
-
-            msg=pynmea2.parse(line)
+            if "$GNGGA" in line or "$GPGGA" in line:
 
 
-            if int(msg.num_sats)>0:
+                msg = pynmea2.parse(line)
 
-                gps_data["status"]="FIX"
-                gps_data["sat"]=int(msg.num_sats)
-                gps_data["lat"]=msg.latitude
-                gps_data["long"]=msg.longitude
-                gps_data["alt"]=msg.altitude
+
+                sats = int(msg.num_sats)
+
+
+                gps_data["sat"] = sats
+
+
+                if sats > 0:
+
+                    gps_data["status"] = "FIX"
+
+                    gps_data["lat"] = msg.latitude
+
+                    gps_data["long"] = msg.longitude
+
+                    gps_data["alt"] = msg.altitude
+
+
+                break
 
 
     except Exception as e:
+
         print("GPS Error:",e)
 
 
     return gps_data
-
 
 
 
