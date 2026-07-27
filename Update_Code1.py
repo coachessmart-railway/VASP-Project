@@ -1,147 +1,549 @@
 #!/usr/bin/env python3
 
 import time
-import board
-import busio
-
-import adafruit_ads1x15.ads1115 as ADS
-from adafruit_ads1x15.analog_in import AnalogIn
+import os
+import serial
+import sqlite3
 
 
-# -------------------------------
-# Constants
-# -------------------------------
+# ================= CONFIG =================
 
-SHUNT = 160.0
-ADC_FULL = 32767.0
-ADC_VOLTAGE = 4.096
+READ_INTERVAL = 1
 
+RAW_THRESHOLD = 348
 
-# Pressure ranges
-BP_RANGE = 5.0
-FP_RANGE = 6.0
-CR_RANGE = 5.0
-BC_RANGE = 3.8
-MR_RANGE = 10.0
+ADS1_ADDRESS = 0x48
+ADS2_ADDRESS = 0x49
+
+GPS_PORT = "/dev/ttyAMA3"
+GPS_BAUD = 38400
+
+LCD_ADDRESS = 0x27
 
 
+# ================= DATABASE =================
 
-# -------------------------------
-# I2C
-# -------------------------------
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-i2c = busio.I2C(board.SCL, board.SDA)
-
-
-# ADS1115-1
-ads1 = ADS.ADS1115(i2c,address=0x48)
-ads1.gain = 1
+DB_PATH = os.path.join(
+    BASE_DIR,
+    "db",
+    "hams_data.db"
+)
 
 
-BP = AnalogIn(ads1,0)
-FP = AnalogIn(ads1,1)
-CR = AnalogIn(ads1,2)
-BC = AnalogIn(ads1,3)
+os.makedirs(
+    os.path.dirname(DB_PATH),
+    exist_ok=True
+)
 
 
-# ADS1115-2
+conn = sqlite3.connect(
+    DB_PATH,
+    check_same_thread=False
+)
 
-ads2 = ADS.ADS1115(i2c,address=0x49)
-ads2.gain = 1
-
-
-Battery = AnalogIn(ads2,2)
-MR = AnalogIn(ads2,3)
+cursor = conn.cursor()
 
 
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS brake_pressure_log
+(
+id INTEGER PRIMARY KEY AUTOINCREMENT,
 
-# -------------------------------
-# Conversion Function
-# -------------------------------
+BP_raw INTEGER,
+FP_raw INTEGER,
+CR_raw INTEGER,
+BC_raw INTEGER,
 
-def convert_pressure(sensor, pressure_range):
+MR_raw INTEGER,
+Battery_raw INTEGER,
 
-    raw = sensor.value
+GPS TEXT,
 
-    voltage = (raw / ADC_FULL) * ADC_VOLTAGE
+timestamp DATETIME,
 
-    current = (voltage / SHUNT) * 1000
+uploaded INTEGER DEFAULT 0
 
-
-    pressure = ((current - 4.0) / 16.0) * pressure_range
-
-
-    if pressure < 0:
-        pressure = 0
+)
+""")
 
 
-    return raw, voltage, current, pressure
+conn.commit()
 
 
 
-# -------------------------------
-# Main Loop
-# -------------------------------
+# ================= ADS1115 =================
+
+ADS_AVAILABLE = True
+
+
+try:
+
+    import board
+    import busio
+
+    import adafruit_ads1x15.ads1115 as ADS
+
+    from adafruit_ads1x15.analog_in import AnalogIn
+
+
+    i2c = busio.I2C(
+        board.SCL,
+        board.SDA
+    )
+
+
+    ads1 = ADS.ADS1115(
+        i2c,
+        address=ADS1_ADDRESS
+    )
+
+
+    ads2 = ADS.ADS1115(
+        i2c,
+        address=ADS2_ADDRESS
+    )
+
+
+    ads1.gain = 1
+    ads2.gain = 1
+
+
+    BP = AnalogIn(
+        ads1,
+        ADS.P0
+    )
+
+    FP = AnalogIn(
+        ads1,
+        ADS.P1
+    )
+
+    CR = AnalogIn(
+        ads1,
+        ADS.P2
+    )
+
+    BC = AnalogIn(
+        ads1,
+        ADS.P3
+    )
+
+
+    MR = AnalogIn(
+        ads2,
+        ADS.P0
+    )
+
+
+    BATTERY = AnalogIn(
+        ads2,
+        ADS.P1
+    )
+
+
+    print("ADS1115 Connected")
+
+
+except Exception as e:
+
+    ADS_AVAILABLE = False
+
+    print(
+        "ADS1115 Error:",
+        e
+    )
+
+
+
+
+# ================= LCD =================
+
+
+LCD_AVAILABLE = True
+
+
+try:
+
+    from RPLCD.i2c import CharLCD
+
+
+    lcd = CharLCD(
+        "PCF8574",
+        LCD_ADDRESS,
+        cols=20,
+        rows=4
+    )
+
+
+    lcd.clear()
+
+    print("LCD Connected")
+
+
+except Exception as e:
+
+    LCD_AVAILABLE = False
+
+    print(
+        "LCD Error:",
+        e
+    )
+
+
+
+
+# ================= GPS =================
+
+
+GPS_AVAILABLE = True
+
+
+try:
+
+    gps = serial.Serial(
+        GPS_PORT,
+        GPS_BAUD,
+        timeout=1
+    )
+
+
+    print("GPS Connected")
+
+
+except Exception as e:
+
+    GPS_AVAILABLE = False
+
+    print(
+        "GPS Error:",
+        e
+    )
+
+
+
+
+# ================= FUNCTIONS =================
+
+
+def read_ads1115():
+
+
+    if ADS_AVAILABLE:
+
+
+        return (
+
+            BP.value,
+
+            FP.value,
+
+            CR.value,
+
+            BC.value,
+
+            MR.value,
+
+            BATTERY.value
+
+        )
+
+
+    return (
+
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+
+    )
+
+
+
+
+
+def read_gps():
+
+
+    if GPS_AVAILABLE:
+
+        try:
+
+            data = gps.readline()
+
+            return data.decode(
+                errors="ignore"
+            ).strip()
+
+
+        except:
+
+            return "GPS ERROR"
+
+
+    return "GPS NOT CONNECTED"
+
+
+
+
+
+def lcd_print(values):
+
+
+    if LCD_AVAILABLE:
+
+
+        lcd.clear()
+
+
+        lcd.write_string(
+
+            f"BP:{values[0]} FP:{values[1]}"
+
+        )
+
+
+        lcd.cursor_pos=(1,0)
+
+
+        lcd.write_string(
+
+            f"CR:{values[2]} BC:{values[3]}"
+
+        )
+
+
+        lcd.cursor_pos=(2,0)
+
+
+        lcd.write_string(
+
+            f"MR:{values[4]} BAT:{values[5]}"
+
+        )
+
+
+        lcd.cursor_pos=(3,0)
+
+
+        lcd.write_string(
+
+            "RAW DATA"
+
+        )
+
+
+
+
+
+# ================= MAIN =================
+
+
+print("\nHAMS RAW CAPTURE STARTED\n")
+
+
+last_raw = None
+
 
 
 while True:
 
 
-    bp = convert_pressure(BP,BP_RANGE)
-    fp = convert_pressure(FP,FP_RANGE)
-    cr = convert_pressure(CR,CR_RANGE)
-    bc = convert_pressure(BC,BC_RANGE)
-
-    mr = convert_pressure(MR,MR_RANGE)
+    current_raw = read_ads1115()
 
 
-
-    print("\n--------------------------------")
-    print(time.strftime("%Y-%m-%d %H:%M:%S"))
-    print("--------------------------------")
+    gps_data = read_gps()
 
 
-    print(
-    f"BP Raw:{bp[0]}  "
-    f"V:{bp[1]:.3f}V "
-    f"I:{bp[2]:.2f}mA "
-    f"P:{bp[3]:.2f} kg/cm2"
+    timestamp = time.strftime(
+        "%Y-%m-%d %H:%M:%S"
     )
 
-
-    print(
-    f"FP Raw:{fp[0]}  "
-    f"V:{fp[1]:.3f}V "
-    f"I:{fp[2]:.2f}mA "
-    f"P:{fp[3]:.2f} kg/cm2"
-    )
-
-
-    print(
-    f"CR Raw:{cr[0]}  "
-    f"V:{cr[1]:.3f}V "
-    f"I:{cr[2]:.2f}mA "
-    f"P:{cr[3]:.2f} kg/cm2"
-    )
-
-
-    print(
-    f"BC Raw:{bc[0]}  "
-    f"V:{bc[1]:.3f}V "
-    f"I:{bc[2]:.2f}mA "
-    f"P:{bc[3]:.2f} kg/cm2"
-    )
-
-
-    print(
-    f"MR Raw:{mr[0]}  "
-    f"V:{mr[1]:.3f}V "
-    f"I:{mr[2]:.2f}mA "
-    f"P:{mr[3]:.2f} kg/cm2"
-    )
 
 
     print("--------------------------------")
 
+    print(
+        "Time:",
+        timestamp
+    )
 
-    time.sleep(1)
+
+    print(
+        "ADS1115-1 (0x48)"
+    )
+
+
+    print(
+        "BP Raw:",
+        current_raw[0]
+    )
+
+    print(
+        "FP Raw:",
+        current_raw[1]
+    )
+
+    print(
+        "CR Raw:",
+        current_raw[2]
+    )
+
+    print(
+        "BC Raw:",
+        current_raw[3]
+    )
+
+
+    print("----------------")
+
+
+    print(
+        "ADS1115-2 (0x49)"
+    )
+
+
+    print(
+        "MR Raw:",
+        current_raw[4]
+    )
+
+
+    print(
+        "Battery Raw:",
+        current_raw[5]
+    )
+
+
+    print(
+        "GPS:",
+        gps_data
+    )
+
+
+    print("--------------------------------")
+
+
+
+    lcd_print(
+        current_raw
+    )
+
+
+
+    # ========= CHANGE CHECK =========
+
+
+    store_data = False
+
+
+
+    if last_raw is None:
+
+        store_data = True
+
+
+
+    else:
+
+
+        pressure_diff = [
+
+            abs(
+                current_raw[i]
+                -
+                last_raw[i]
+            )
+
+            for i in range(4)
+
+        ]
+
+
+        if any(
+
+            diff >= RAW_THRESHOLD
+
+            for diff in pressure_diff
+
+        ):
+
+            store_data = True
+
+
+
+
+    # ========= DATABASE INSERT =========
+
+
+    if store_data:
+
+
+        cursor.execute("""
+
+        INSERT INTO brake_pressure_log
+
+        (
+        BP_raw,
+        FP_raw,
+        CR_raw,
+        BC_raw,
+
+        MR_raw,
+        Battery_raw,
+
+        GPS,
+        timestamp
+
+        )
+
+        VALUES(?,?,?,?,?,?,?,?)
+
+        """,
+
+        (
+
+        current_raw[0],
+        current_raw[1],
+        current_raw[2],
+        current_raw[3],
+
+        current_raw[4],
+        current_raw[5],
+
+        gps_data,
+        timestamp
+
+        ))
+
+
+
+        conn.commit()
+
+
+
+        last_raw = current_raw
+
+
+
+        print(
+            "✅ Stored in DB"
+        )
+
+
+
+    else:
+
+
+        print(
+            "⏭ No change >348"
+        )
+
+
+
+    time.sleep(
+        READ_INTERVAL
+    )
